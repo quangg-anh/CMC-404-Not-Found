@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, BookOpen, Clock, ShieldCheck, TreeStructure, BookmarkSimple, Spinner, FileText } from '@phosphor-icons/react';
+import { ArrowLeft, BookOpen, Clock, ShieldCheck, TreeStructure, BookmarkSimple, Spinner, FileText, DownloadSimple, FilePdf } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
 import { apiGet } from '../../lib/api';
 
@@ -8,6 +8,12 @@ interface Khoan {
   so_khoan?: string | number;
   noi_dung?: string;
   dieu?: string;
+}
+
+interface VanBanFile {
+  file_id: string;
+  filename: string;
+  size_bytes: number;
 }
 
 interface VanBan {
@@ -19,6 +25,7 @@ interface VanBan {
   trang_thai?: string;
   tom_tat?: string;
   tree?: Khoan[];
+  files?: VanBanFile[];
 }
 
 interface VanBanListResponse {
@@ -177,6 +184,37 @@ export default function VanBanPage() {
                   )}
                 </article>
               </div>
+
+              {detail.files && detail.files.length > 0 && (
+                <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.02)] mt-6">
+                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-4">
+                    <FilePdf size={24} className="text-red-500" weight="fill" /> Tài liệu đính kèm (Bản gốc)
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {detail.files.map(f => (
+                      <div key={f.file_id} className="flex items-center justify-between p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                            <FilePdf size={20} weight="fill" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-800 text-sm truncate" title={f.filename}>{f.filename}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{(f.size_bytes / 1024 / 1024).toFixed(2)} MB</p>
+                          </div>
+                        </div>
+                        <a 
+                          href={`http://localhost:8000/citizen/legal/download/${f.file_id}`} 
+                          target="_blank" rel="noopener noreferrer"
+                          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-600 hover:text-brand hover:border-brand shadow-sm transition-all"
+                          title="Tải xuống"
+                        >
+                          <DownloadSimple size={16} weight="bold" />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

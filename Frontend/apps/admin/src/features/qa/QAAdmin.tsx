@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PaperPlaneRight, User, Robot, ShieldCheck, WarningCircle } from '@phosphor-icons/react';
+import { PaperPlaneRight, User, Robot, ShieldCheck, WarningCircle, CaretRight, Path } from '@phosphor-icons/react';
 import { CitationCard } from '../../../../../packages/ui-legal/src/components/CitationCard';
 import { apiPost } from '../../lib/api';
 
@@ -26,6 +26,23 @@ interface ChatMessage {
   citations?: BackendCitation[];
   confidence?: 'high' | 'medium' | 'low';
   isTyping?: boolean;
+  graphPaths?: string[];
+}
+
+function GraphPathBreadcrumb({ paths }: { paths: string[] }) {
+  if (!paths || paths.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-3 text-xs font-mono text-slate-500 bg-slate-100/50 p-2.5 rounded-xl border border-slate-200/50">
+      <Path size={14} className="text-brand mr-1" />
+      <span className="font-bold text-slate-700">Graph Paths:</span>
+      {paths.map((p, i) => (
+        <span key={i} className="flex items-center gap-1.5">
+          {i > 0 && <CaretRight size={10} />}
+          <span className="bg-white border border-slate-200 shadow-sm px-1.5 py-0.5 rounded-md text-slate-600">{p}</span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 export default function QAAdminPage() {
@@ -52,7 +69,7 @@ export default function QAAdminPage() {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === typingId
-            ? { id: typingId, role: 'assistant', content: data.answer, citations: data.citations ?? [], confidence: data.confidence }
+            ? { id: typingId, role: 'assistant', content: data.answer, citations: data.citations ?? [], confidence: data.confidence, graphPaths: data.graph_paths }
             : m,
         ),
       );
@@ -112,6 +129,9 @@ export default function QAAdminPage() {
                     <CitationCard key={idx} van_ban={cit.van_ban} dieu={cit.dieu} quote={cit.quote} khoan_id={cit.khoan_id} />
                   ))}
                 </div>
+              )}
+              {msg.graphPaths && msg.graphPaths.length > 0 && (
+                <GraphPathBreadcrumb paths={msg.graphPaths} />
               )}
               {msg.role === 'assistant' && !msg.isTyping && (!msg.citations || msg.citations.length === 0) && msg.id !== 'welcome' && (
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-600">

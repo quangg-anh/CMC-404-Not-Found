@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MagnifyingGlass, ChartLineUp, Users, CheckCircle, Warning, CaretRight, Robot, Spinner } from '@phosphor-icons/react';
+import { MagnifyingGlass, ChartLineUp, Users, CheckCircle, Warning, CaretRight, Robot, Spinner, Link as LinkIcon } from '@phosphor-icons/react';
 import { RiskBadge, type RiskLabel } from '../../../../../packages/ui-legal/src/components/RiskBadge';
 import { CitationCard } from '../../../../../packages/ui-legal/src/components/CitationCard';
 import { apiGet, apiPatch } from '../../lib/api';
@@ -60,6 +60,31 @@ function normalize(raw: RawAlert): AlertView {
     createdAt: raw.created_at ?? '',
     evidence: ev && (ev.van_ban || ev.quote) ? { van_ban: ev.van_ban ?? '', dieu: ev.dieu ?? '', quote: ev.quote ?? '' } : undefined,
   };
+}
+
+function LinkPreviewPanel({ url }: { url: string }) {
+  try {
+    const domain = new URL(url).hostname;
+    return (
+      <div className="mt-3 flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+        <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center shrink-0 border border-slate-100">
+          <LinkIcon size={20} className="text-slate-400" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-slate-800 truncate">{domain}</p>
+          <a href={url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline truncate block mt-0.5">
+            {url}
+          </a>
+        </div>
+      </div>
+    );
+  } catch {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1 w-fit mt-3">
+        Nguồn: {url}
+      </a>
+    );
+  }
 }
 
 export default function AlertsPage() {
@@ -174,9 +199,7 @@ export default function AlertsPage() {
                     <p className="text-[15px] font-medium text-slate-800 leading-relaxed relative z-10 italic">{alert.claim}</p>
                   </div>
                   {alert.postUrl && (
-                    <a href={alert.postUrl} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1 w-fit">
-                      Nguồn: {alert.postUrl}
-                    </a>
+                    <LinkPreviewPanel url={alert.postUrl} />
                   )}
                 </div>
 

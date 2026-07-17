@@ -14,12 +14,12 @@ function Header() {
   return (
     <header className="fixed top-0 inset-x-0 bg-white/80 backdrop-blur-xl border-b border-slate-200/50 z-50 transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-3 group">
+        <Link to="/" className="flex items-center gap-4 group">
           <div className="w-11 h-11 bg-gradient-to-br from-brand to-red-900 rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand/20 group-hover:scale-105 transition-transform duration-300">
             <Scales size={26} weight="fill" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none group-hover:text-brand transition-colors">LexSocial<span className="text-brand">AI</span></h1>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none group-hover:text-brand transition-colors">LexSocial<span className="text-brand ml-1">AI</span></h1>
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 block">Cổng thông tin pháp luật</span>
           </div>
         </Link>
@@ -220,11 +220,11 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-16">
             <div className="md:col-span-2 flex flex-col items-start">
-              <div className="flex items-center gap-3 mb-6">
+              <div className="flex items-center gap-4 mb-6">
                 <div className="w-10 h-10 bg-brand rounded-lg flex items-center justify-center text-white shadow-sm">
                   <Scales size={24} weight="fill" />
                 </div>
-                <span className="text-2xl font-black text-slate-900 tracking-tight">LexSocial<span className="text-brand">AI</span></span>
+                <span className="text-2xl font-black text-slate-900 tracking-tight">LexSocial<span className="text-brand ml-1">AI</span></span>
               </div>
               <p className="text-slate-500 font-medium leading-relaxed max-w-sm mb-6">
                 Nền tảng Tra cứu Pháp luật thông minh dành cho công dân. Dữ liệu được thu thập và phân tích bởi AI đảm bảo tính chính xác và kịp thời.

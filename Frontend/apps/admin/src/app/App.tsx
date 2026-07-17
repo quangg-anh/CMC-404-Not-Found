@@ -1,12 +1,17 @@
 // Force HMR reload
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { ShieldCheck, SquaresFour, Bell, ListMagnifyingGlass, FileText, ShareNetwork } from '@phosphor-icons/react';
+import { ShieldCheck, SquaresFour, Bell, ListMagnifyingGlass, FileText, ShareNetwork, HardDrives, Article, ListChecks } from '@phosphor-icons/react';
 import DashboardPage from '../features/dashboard/Dashboard';
 import AlertsPage from '../features/alerts/Alerts';
 import QAAdminPage from '../features/qa/QAAdmin';
 import IngestPage from '../features/ingest/Ingest';
 import DiffPage from '../features/diff/DiffPage';
+import GraphPage from '../features/graph/GraphPage';
+import JobsPage from '../features/jobs/JobsPage';
+import BriefsPage from '../features/briefs/BriefsPage';
+import ReviewPage from '../features/review/ReviewPage';
+import KhoanPage from '../features/khoan/KhoanPage';
 import LoginPage from '../features/auth/Login';
 
 function Sidebar() {
@@ -47,6 +52,14 @@ function Sidebar() {
           <div className={iconWrapperClass('/qa')}><ListMagnifyingGlass size={16} weight="fill" /></div>
           Hỏi đáp Pháp lý
         </Link>
+        <Link to="/review" className={navItemClass('/review')}>
+          <div className={iconWrapperClass('/review')}><ListChecks size={16} weight="fill" /></div>
+          Hàng đợi duyệt
+        </Link>
+        <Link to="/briefs" className={navItemClass('/briefs')}>
+          <div className={iconWrapperClass('/briefs')}><Article size={16} weight="fill" /></div>
+          Bản tin & Đề xuất
+        </Link>
         
         <div className="pt-6 pb-2">
           <p className="px-4 text-xs font-bold text-muted uppercase tracking-wider">Quản trị Dữ liệu</p>
@@ -54,6 +67,10 @@ function Sidebar() {
         <Link to="/van-ban" className={navItemClass('/van-ban')}>
           <div className={iconWrapperClass('/van-ban')}><FileText size={16} weight="fill" /></div>
           Số hóa văn bản (Ingest)
+        </Link>
+        <Link to="/jobs" className={navItemClass('/jobs')}>
+          <div className={iconWrapperClass('/jobs')}><HardDrives size={16} weight="fill" /></div>
+          Tiến trình (Jobs)
         </Link>
         <Link to="/diff" className={navItemClass('/diff')}>
           <div className={iconWrapperClass('/diff')}><ListMagnifyingGlass size={16} weight="fill" /></div>
@@ -77,8 +94,13 @@ function AppContent() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/qa" element={<QAAdminPage />} />
+          <Route path="/review" element={<ReviewPage />} />
+          <Route path="/briefs" element={<BriefsPage />} />
           <Route path="/van-ban" element={<IngestPage />} />
+          <Route path="/khoan/:id" element={<KhoanPage />} />
           <Route path="/diff" element={<DiffPage />} />
+          <Route path="/graph" element={<GraphPage />} />
+          <Route path="/jobs" element={<JobsPage />} />
         </Routes>
       </main>
     </div>
