@@ -16,7 +16,7 @@
 | DB ↔ BE — Qdrant | ✅ Khớp | Collection `khoan/baidang/chude`, dim 1024, Cosine. |
 | DB ↔ BE — Postgres | ✅ **Đã fix (2026-07-17)** | BE2 sửa adapter khớp cột/enum. Xem §2. |
 | BE ↔ FE | ❌ Chưa nối | FE dùng dữ liệu mock, chưa gọi API. Xem §4. |
-| Chạy chung | ⚠️ BE crash khi boot | Đã cài Python, nhưng `uvicorn` fail do ImportError (xem §7). |
+| Chạy chung | ✅ BE boot OK | `uvicorn` chạy, `GET /health` → 200. Xem §7. |
 
 ### Cập nhật 2026-07-17 (sau khi BE2 fix)
 - ✅ **Postgres**: `postgres_content.py` đã map đúng `briefs(id,tieu_de,media_type,status,citations)`, `suggestions(id,draft_text,alert_ids,khoan_ids,claim_labels,status)`, đọc `alerts` theo cột; cast enum + cấp `id` từ `uuid` Neo4j. **Khớp schema.**
@@ -114,16 +114,18 @@ Thứ tự phụ thuộc: **DB → BE → FE**.
 
 ---
 
-## 7. Blocker mới — Backend không khởi động (BE scope)
+## 7. Backend boot — ĐÃ FIX (2026-07-17)
 
-`uvicorn app.main:app` fail ngay khi import (exit 1):
+`uvicorn app.main:app` trước đây fail ngay khi import (exit 1):
 
 ```
 ImportError: cannot import name 'verify_and_publish_brief'
-from 'app.services.publish_gate'
-  ... app/services/brief_service.py line 7
+from 'app.services.publish_gate'  ... app/services/brief_service.py line 7
 ```
 
-- Nguyên nhân: `publish_gate.py` export **class** `PublishGateService` với **method** `verify_and_publish_brief`, nhưng `brief_service.py` lại `from app.services.publish_gate import verify_and_publish_brief` (import như hàm module-level → không tồn tại).
-- Cách sửa (BE): hoặc thêm hàm wrapper `verify_and_publish_brief` ở `publish_gate.py`, hoặc đổi `brief_service.py` sang dùng `PublishGateService().verify_and_publish_brief(...)`.
-- **Không liên quan DB.** Sau khi sửa, chạy lại `uvicorn ... --port 8000` rồi `GET /health` để xác nhận.
+- Nguyên nhân: `publish_gate.py` export **class** `PublishGateService` (method `verify_and_publish_brief(brief_id, actor, brief_data)` → trả về `tuple[bool, dict, list]`), nhưng `brief_service.py` import như hàm module-level **và** gọi sai thứ tự tham số.
+- **Đã sửa:** đổi import sang `PublishGateService`; `publish_brief()` giờ khởi tạo `PublishGateService(pool, driver)` và gọi `verify_and_publish_brief(brief_id, user_token, item)`, xử lý tuple trả về.
+- **Xác nhận:** `python -c "import app.main"` OK; `uvicorn ... :8010` → `GET /health` = `200 {"status":"ok"}`.
+
+### 7.1 Còn lại (BE functional, KHÔNG gây crash)
+`brief_service.py` (list/get/generate/update) vẫn dùng cột **không có trong schema**: `tuc_danh`, `citations_json`, và sinh id dạng `brief-xxxx` (không phải UUID). Các thao tác này bọc trong `try/except: pass` nên **không crash**, nhưng sẽ **không ghi được vào Postgres thật** (khác với `postgres_content.py` đã đúng: `tieu_de`, `citations`, `media_type`, id=UUID). BE nên hợp nhất `brief_service.py` theo đúng cột schema `003_content_publish.sql`.

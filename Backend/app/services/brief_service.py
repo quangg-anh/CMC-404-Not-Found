@@ -4,7 +4,7 @@ import json
 import uuid
 from typing import Any
 from datetime import datetime, timezone
-from app.services.publish_gate import verify_and_publish_brief
+from app.services.publish_gate import PublishGateService
 
 
 class BriefService:
@@ -133,19 +133,12 @@ class BriefService:
         if not item:
             raise ValueError(f"Brief {brief_id} không tồn tại.")
 
-        result = await verify_and_publish_brief(brief_id, item, user_token, self.driver)
-        if self.pool and hasattr(self.pool, "acquire"):
-            try:
-                async with self.pool.acquire() as conn:
-                    await conn.execute(
-                        "UPDATE briefs SET status = 'published', published_at = $1 WHERE id = $2",
-                        datetime.now(timezone.utc),
-                        brief_id,
-                    )
-            except Exception:
-                pass
+        gate = PublishGateService(self.pool, self.driver)
+        ok, updated_brief, errors = await gate.verify_and_publish_brief(brief_id, user_token, item)
+        if not ok:
+            raise ValueError("; ".join(errors) or f"Không thể xuất bản Brief {brief_id}.")
 
-        item.update(result)
+        item.update(updated_brief)
         return item
 
     async def archive_brief(self, brief_id: str) -> dict[str, Any] | None:
