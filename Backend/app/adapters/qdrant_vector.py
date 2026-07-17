@@ -23,6 +23,10 @@ class QdrantVectorClient:
     async def validate_collection(self, collection: str, vector_size: int | None = None) -> None:
         info = await self.get_collection(collection)
         params = info.get("config", {}).get("params", {}).get("vectors") or info.get("vectors") or {}
+        if not isinstance(params, dict) and hasattr(params, "model_dump"):
+            params = params.model_dump()
+        if isinstance(params, dict) and "params" in params and isinstance(params["params"], dict):
+            params = params["params"]
         size = params.get("size") if isinstance(params, dict) else None
         distance = params.get("distance") if isinstance(params, dict) else None
         expected_size = vector_size or self.expected_dimensions.get(collection)
@@ -53,6 +57,8 @@ class QdrantVectorClient:
     async def upsert_baidang(self, *, point_id: str, vector: list[float], bai_dang_id: str, chu_de: str | None, platform: str) -> None:
         if not point_id or not bai_dang_id or not platform:
             raise ContractMissingError("baidang point_id, bai_dang_id, and platform are required")
+        if platform not in {"facebook", "youtube", "forum"}:
+            raise ValidationError("unsupported social platform", details={"platform": platform})
         await self.upsert("baidang", [{"id": point_id, "vector": vector, "payload": {"bai_dang_id": bai_dang_id, "chu_de": chu_de, "platform": platform}}])
 
     async def upsert_chude(self, *, slug: str, ten: str, vector: list[float]) -> None:

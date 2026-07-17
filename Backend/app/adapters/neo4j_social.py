@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid5, NAMESPACE_URL
 from app.schemas import LinkCandidate, NliResult, SocialPost, TopicResult
 
 
@@ -46,6 +47,7 @@ class Neo4jSocialRepository:
         query = """
         MATCH (b:BaiDang {platform: $platform, external_id: $external_id})
         MERGE (c:ChuDe {slug: $slug})
+        SET c.ten = coalesce(c.ten, $slug)
         MERGE (b)-[r:THAO_LUAN_VE]->(c)
         SET r.score = $score, r.model = $model, r.status = $status
         """
@@ -72,6 +74,7 @@ class Neo4jSocialRepository:
         query = """
         MATCH (b:BaiDang {platform: $platform, external_id: $external_id})
         MATCH (k:Khoan {khoan_id: $khoan_id})
+        MATCH (b)-[:THAO_LUAN_VE]->(:ChuDe)-[:LIEN_QUAN]->(k)
         MERGE (b)-[r:GAN_CO_CAN_KIEM_CHUNG]->(k)
         SET r.score = $score, r.method = $method, r.updated_at = datetime($updated_at)
         """
@@ -84,31 +87,37 @@ class Neo4jSocialRepository:
         query = """
         MATCH (b:BaiDang {platform: $platform, external_id: $external_id})
         MATCH (k:Khoan {khoan_id: $khoan_id})
-        MERGE (y:YKien {bai_dang_id: $bai_dang_id, claim_hash: $claim_hash})
-        SET y.confidence = $score
+        MERGE (y:YKien {uuid: $uuid})
+        SET y.bai_dang_id = $bai_dang_id,
+            y.claim_hash = $claim_hash,
+            y.claim_text = $claim_text,
+            y.stance = $label,
+            y.confidence = $score
+        MERGE (b)-[:LIEN_QUAN]->(y)
         MERGE (y)-[r:DOI_CHIEU]->(k)
         SET r.label = $label, r.score = $score
         """
         claim_hash = f"{bai_dang_id}:{khoan_id}:{result.label}"
+        ykien_uuid = str(uuid5(NAMESPACE_URL, f"be2:ykien:{claim_hash}"))
         async with self.driver.session() as session:
-            result_cursor = await session.run(query, platform=platform, external_id=external_id, khoan_id=khoan_id, bai_dang_id=bai_dang_id, claim_hash=claim_hash, label=result.label, score=result.score)
+            result_cursor = await session.run(query, platform=platform, external_id=external_id, khoan_id=khoan_id, bai_dang_id=bai_dang_id, uuid=ykien_uuid, claim_hash=claim_hash, claim_text=claim_hash, label=result.label.value, score=result.score)
             await result_cursor.consume()
 
     async def save_alert(self, alert: dict[str, Any]) -> str:
-        alert_id = alert.get("alert_id") or alert.get("dedupe_key")
+        alert_uuid = alert.get("uuid") or alert.get("alert_id") or str(uuid5(NAMESPACE_URL, f"be2:alert:{alert.get('dedupe_key') or alert}"))
         query = """
-        MERGE (a:AlertMeta {alert_id: $alert_id})
+        MERGE (a:AlertMeta {uuid: $uuid})
         SET a.chu_de = $chu_de, a.khoan_ids = $khoan_ids, a.severity = $severity,
             a.volume = $volume, a.status = $status, a.created_at = coalesce(a.created_at, datetime($created_at))
-        RETURN a.alert_id AS alert_id
+        RETURN a.uuid AS uuid
         """
         async with self.driver.session() as session:
-            result = await session.run(query, alert_id=alert_id, chu_de=alert.get("chu_de"), khoan_ids=alert.get("khoan_ids", []), severity=alert.get("severity"), volume=alert.get("volume"), status=alert.get("status", "open"), created_at=datetime.now(timezone.utc).isoformat())
+            result = await session.run(query, uuid=alert_uuid, chu_de=alert.get("chu_de"), khoan_ids=alert.get("khoan_ids", []), severity=alert.get("severity"), volume=alert.get("volume"), status=alert.get("status", "open"), created_at=datetime.now(timezone.utc).isoformat())
             record = await result.single()
-        return record["alert_id"] if record else str(alert_id)
+        return record["uuid"] if record else str(alert_uuid)
 
     async def find_recent_alert(self, key: str, cooldown_s: int) -> dict[str, Any] | None:
-        query = "MATCH (a:AlertMeta {alert_id: $key}) RETURN a LIMIT 1"
+        query = "MATCH (a:AlertMeta {uuid: $key}) RETURN a LIMIT 1"
         async with self.driver.session() as session:
             result = await session.run(query, key=key)
             record = await result.single()

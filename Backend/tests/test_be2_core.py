@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 from app.config import BE2Config
 from app.exceptions import ValidationError
+from app.adapters.postgres_content import PostgresContentRepository
+from app.adapters.qdrant_vector import QdrantVectorClient
 from app.intelligence.embedder import Embedder
 from app.intelligence.llm_router import LLMRouter, decide_route
 from app.intelligence.nli import NLIService
@@ -12,7 +14,7 @@ from app.intelligence.rerank import Reranker
 from app.pipelines.content.validators import validate_citations
 from app.pipelines.social.entity_link import EntityLinker
 from app.pipelines.social.ingest import normalize_social_payload
-from app.schemas import CandidateKhoan, Citation, NliLabel, TopicResult
+from app.schemas import BriefDraft, CandidateKhoan, Citation, NliLabel, Status, SuggestDraft, TopicResult
 from app.workers.arq_settings import BE2_WORKER_FUNCTIONS, redis_settings
 from app.workers.content_jobs import JOB_NAMES as CONTENT_JOB_NAMES
 from app.workers.social_jobs import JOB_NAMES as SOCIAL_JOB_NAMES
@@ -147,3 +149,51 @@ def test_be2_worker_settings_are_scope_limited():
     assert "publish" not in " ".join(names)
     settings = redis_settings(BE2Config(redis_url="redis://localhost:6379/5"))
     assert settings.database == 5
+
+@pytest.mark.asyncio
+async def test_qdrant_baidang_contract_platform_enum():
+    client = QdrantVectorClient(FakeQdrant())
+    with pytest.raises(ValidationError):
+        await client.upsert_baidang(point_id="1", vector=[0.1, 0.2], bai_dang_id="x:1", chu_de="tax", platform="x")
+    await client.upsert_baidang(point_id="1", vector=[0.1, 0.2], bai_dang_id="facebook:1", chu_de="tax", platform="facebook")
+
+@pytest.mark.asyncio
+async def test_postgres_content_adapter_uses_contract_columns():
+    pool = FakePool()
+    repo = PostgresContentRepository(pool)
+    await repo.save_brief(BriefDraft(title="t", bullets=["b"], citations=[Citation(khoan_id="k1", quote="q")], status=Status.NEEDS_REVIEW, model="m", audit={"uuid": "00000000-0000-0000-0000-000000000001"}))
+    await repo.save_suggestion(SuggestDraft(draft_content="d", related_alert_ids=["00000000-0000-0000-0000-000000000002"], status=Status.DRAFT, disclaimer="internal"))
+    queries = "\n".join(query for query, _ in pool.conn.calls)
+    assert "INSERT INTO briefs (id, tieu_de, media_type, status, citations)" in queries
+    assert "INSERT INTO suggestions (id, draft_text, alert_ids, khoan_ids, claim_labels, status)" in queries
+    assert "payload_json" not in queries
+
+class FakeQdrant:
+    async def get_collection(self, collection):
+        return {"config": {"params": {"vectors": {"size": 2, "distance": "Cosine"}}}}
+    async def upsert(self, **kwargs):
+        self.last_upsert = kwargs
+
+class FakeConn:
+    def __init__(self):
+        self.calls = []
+    async def fetchrow(self, query, *args):
+        self.calls.append((query, args))
+        return {"id": args[0]}
+    async def fetch(self, query, *args):
+        self.calls.append((query, args))
+        return []
+
+class FakeAcquire:
+    def __init__(self, conn):
+        self.conn = conn
+    async def __aenter__(self):
+        return self.conn
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+class FakePool:
+    def __init__(self):
+        self.conn = FakeConn()
+    def acquire(self):
+        return FakeAcquire(self.conn)
