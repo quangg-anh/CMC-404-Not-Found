@@ -11,9 +11,20 @@ interface Khoan {
 }
 
 interface VanBanFile {
-  file_id: string;
-  filename: string;
-  size_bytes: number;
+  file_id?: string;
+  id?: string;
+  filename?: string;
+  ten_file?: string;
+  size_bytes?: number;
+  kich_thuoc?: number;
+}
+interface FilesResponse { files: VanBanFile[]; total: number }
+
+function fileId(f: VanBanFile): string { return f.file_id ?? f.id ?? ''; }
+function fileName(f: VanBanFile): string { return f.filename ?? f.ten_file ?? fileId(f) ?? 'tài liệu'; }
+function fileSizeMB(f: VanBanFile): string {
+  const b = f.size_bytes ?? f.kich_thuoc ?? 0;
+  return b > 0 ? `${(b / 1024 / 1024).toFixed(2)} MB` : '';
 }
 
 interface VanBan {
@@ -62,8 +73,12 @@ export default function VanBanPage() {
       return;
     }
     setDetailLoading(true);
-    apiGet<VanBan>(`/citizen/legal/van-ban/${encodeURIComponent(selectedId)}`)
-      .then((data) => setDetail(data))
+    const enc = encodeURIComponent(selectedId);
+    Promise.all([
+      apiGet<VanBan>(`/citizen/legal/van-ban/${enc}`),
+      apiGet<FilesResponse>(`/citizen/legal/van-ban/${enc}/files`).catch(() => ({ files: [], total: 0 })),
+    ])
+      .then(([doc, filesRes]) => setDetail({ ...doc, files: filesRes.files ?? [] }))
       .catch(() => setDetail(null))
       .finally(() => setDetailLoading(false));
   }, [selectedId]);
@@ -192,18 +207,18 @@ export default function VanBanPage() {
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {detail.files.map(f => (
-                      <div key={f.file_id} className="flex items-center justify-between p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors">
+                      <div key={fileId(f)} className="flex items-center justify-between p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors">
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-10 h-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center shrink-0">
                             <FilePdf size={20} weight="fill" />
                           </div>
                           <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-sm truncate" title={f.filename}>{f.filename}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{(f.size_bytes / 1024 / 1024).toFixed(2)} MB</p>
+                            <p className="font-bold text-slate-800 text-sm truncate" title={fileName(f)}>{fileName(f)}</p>
+                            {fileSizeMB(f) && <p className="text-xs text-slate-500 mt-0.5">{fileSizeMB(f)}</p>}
                           </div>
                         </div>
                         <a 
-                          href={fileUrl(f.file_id)} 
+                          href={fileUrl(fileId(f))} 
                           target="_blank" rel="noopener noreferrer"
                           className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-600 hover:text-brand hover:border-brand shadow-sm transition-all"
                           title="Tải xuống"
