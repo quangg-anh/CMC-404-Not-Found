@@ -1,0 +1,221 @@
+{
+  "$comment": "Nguon chan ly ontology KG phap luat. Khop Backend/SYSTEM_BACKEND.md §3 va Data/SYSTEM_DATA.md §4.1. Doi ontology phai mo RFC trong PR, cap nhat CA HAI file cung luc.",
+  "version": "1.0.0",
+  "updated_at": "2026-07-17",
+  "database": "neo4j",
+  "edition_note": "Community Edition: chi UNIQUE constraint kha dung. Cac rang buoc NOT NULL / property-type / rel-property duoc enforce o tang Backend.",
+  "enums": {
+    "visibility": ["public", "internal"],
+    "vb_trang_thai": ["hieu_luc", "het_hieu_luc", "sua_doi", "thay_the"],
+    "baitomtat_status": ["draft", "review", "published", "archived"],
+    "dexuat_status": ["draft", "ready", "exported"],
+    "alert_status": ["open", "triaged", "closed"],
+    "media_type": ["text", "image", "audio", "video"],
+    "doi_chieu_label": ["khop", "mau_thuan", "khong_ro"],
+    "platform": ["facebook", "youtube", "forum"]
+  },
+  "canonical_keys": {
+    "VanBanPhapLuat": "vb_id = hash(so_hieu_norm + ngay_ban_hanh)",
+    "Dieu": "dieu_id = {so_hieu_norm}::D{dieu}",
+    "Khoan": "khoan_id = {so_hieu_norm}::D{dieu}.K{khoan}",
+    "Diem": "diem_id = {khoan_id}.P{ky_hieu}",
+    "BaiDang": "(platform, external_id)",
+    "ChuDe": "slug",
+    "ChuThe|NghiaVu|QuyenLoi|HanhViCam|ThoiHan|CheTai|YKien|AlertMeta|BaiTomTat|DeXuatDinhChinh|VanBanFile": "uuid"
+  },
+  "nodes": [
+    {
+      "label": "VanBanPhapLuat",
+      "key": "vb_id",
+      "properties": {
+        "vb_id": "string (unique)",
+        "so_hieu": "string",
+        "so_hieu_norm": "string",
+        "ten": "string",
+        "loai_vb": "string",
+        "co_quan": "string",
+        "ngay_ban_hanh": "date",
+        "ngay_hieu_luc": "date",
+        "trang_thai": "enum vb_trang_thai",
+        "visibility": "enum visibility",
+        "file_ids": "list[string]"
+      }
+    },
+    {
+      "label": "Dieu",
+      "key": "dieu_id",
+      "properties": {
+        "dieu_id": "string (unique)",
+        "so_dieu": "string",
+        "tieu_de": "string",
+        "van_ban_id": "string (-> VanBanPhapLuat.vb_id)"
+      }
+    },
+    {
+      "label": "Khoan",
+      "key": "khoan_id",
+      "properties": {
+        "khoan_id": "string (unique)",
+        "so_khoan": "string",
+        "noi_dung": "string (nguyen van - source of truth citation)",
+        "embedding_id": "string (-> Qdrant point id, collection khoan)",
+        "van_ban_id": "string (-> VanBanPhapLuat.vb_id)",
+        "dieu_so": "string"
+      }
+    },
+    {
+      "label": "Diem",
+      "key": "diem_id",
+      "properties": {
+        "diem_id": "string (unique)",
+        "ky_hieu": "string",
+        "noi_dung": "string",
+        "khoan_id": "string (-> Khoan.khoan_id)"
+      }
+    },
+    {
+      "label": "ChuThe",
+      "key": "uuid",
+      "properties": { "uuid": "string (unique)", "mo_ta": "string", "nguon_khoan_id": "string" }
+    },
+    {
+      "label": "NghiaVu",
+      "key": "uuid",
+      "properties": { "uuid": "string (unique)", "mo_ta": "string", "nguon_khoan_id": "string" }
+    },
+    {
+      "label": "QuyenLoi",
+      "key": "uuid",
+      "properties": { "uuid": "string (unique)", "mo_ta": "string", "nguon_khoan_id": "string" }
+    },
+    {
+      "label": "HanhViCam",
+      "key": "uuid",
+      "properties": { "uuid": "string (unique)", "mo_ta": "string", "nguon_khoan_id": "string" }
+    },
+    {
+      "label": "ThoiHan",
+      "key": "uuid",
+      "properties": { "uuid": "string (unique)", "mo_ta": "string", "nguon_khoan_id": "string" }
+    },
+    {
+      "label": "CheTai",
+      "key": "uuid",
+      "properties": { "uuid": "string (unique)", "mo_ta": "string", "nguon_khoan_id": "string" }
+    },
+    {
+      "label": "BaiDang",
+      "key": ["platform", "external_id"],
+      "properties": {
+        "platform": "enum platform",
+        "external_id": "string",
+        "noi_dung": "string",
+        "tac_gia_hash": "string (PII hashed)",
+        "url": "string",
+        "thoi_gian": "datetime"
+      }
+    },
+    {
+      "label": "ChuDe",
+      "key": "slug",
+      "properties": { "slug": "string (unique)", "ten": "string", "embedding": "string (-> Qdrant collection chude)" }
+    },
+    {
+      "label": "YKien",
+      "key": "uuid",
+      "properties": {
+        "uuid": "string (unique)",
+        "bai_dang_id": "string",
+        "claim_hash": "string",
+        "claim_text": "string",
+        "stance": "string",
+        "confidence": "float"
+      }
+    },
+    {
+      "label": "AlertMeta",
+      "key": "uuid",
+      "properties": {
+        "uuid": "string (unique)",
+        "chu_de": "string",
+        "khoan_ids": "list[string]",
+        "severity": "string",
+        "volume": "int",
+        "status": "enum alert_status",
+        "created_at": "datetime"
+      }
+    },
+    {
+      "label": "BaiTomTat",
+      "key": "uuid",
+      "properties": {
+        "uuid": "string (unique)",
+        "tieu_de": "string",
+        "noi_dung_binh_dan": "string",
+        "media_type": "enum media_type",
+        "status": "enum baitomtat_status",
+        "citations": "list[object] (khoan_id + quote)"
+      }
+    },
+    {
+      "label": "DeXuatDinhChinh",
+      "key": "uuid",
+      "properties": {
+        "uuid": "string (unique)",
+        "draft_text": "string",
+        "alert_ids": "list[string]",
+        "khoan_ids": "list[string]",
+        "status": "enum dexuat_status",
+        "created_by": "string"
+      }
+    },
+    {
+      "label": "VanBanFile",
+      "key": "uuid",
+      "properties": {
+        "uuid": "string (unique)",
+        "van_ban_id": "string (-> VanBanPhapLuat.vb_id)",
+        "filename": "string",
+        "mime": "string",
+        "storage_key": "string (-> MinIO object key)",
+        "checksum": "string"
+      }
+    }
+  ],
+  "relationships": [
+    { "type": "CO_DIEU", "from": "VanBanPhapLuat", "to": "Dieu" },
+    { "type": "CO_KHOAN", "from": "Dieu", "to": "Khoan" },
+    { "type": "CO_DIEM", "from": "Khoan", "to": "Diem" },
+    { "type": "QUY_DINH", "from": "Khoan", "to": ["NghiaVu", "QuyenLoi", "HanhViCam", "ThoiHan", "CheTai"] },
+    { "type": "AP_DUNG_CHO", "from": ["NghiaVu", "QuyenLoi", "HanhViCam", "ThoiHan", "CheTai"], "to": "ChuThe" },
+    { "type": "THAY_THE", "from": "VanBanPhapLuat", "to": "VanBanPhapLuat" },
+    { "type": "SUA_DOI", "from": "VanBanPhapLuat", "to": "VanBanPhapLuat" },
+    { "type": "THAO_LUAN_VE", "from": "BaiDang", "to": "ChuDe" },
+    { "type": "LIEN_QUAN", "from": "ChuDe", "to": ["Khoan", "Dieu", "VanBanPhapLuat"] },
+    {
+      "type": "GAN_CO_CAN_KIEM_CHUNG",
+      "from": "BaiDang",
+      "to": "Khoan",
+      "properties": { "score": "float (required, enforce BE)", "method": "string (required, enforce BE)" },
+      "invariant": "Khong tao canh duoi threshold; phai di qua ChuDe truoc (MVP)."
+    },
+    {
+      "type": "DOI_CHIEU",
+      "from": "YKien",
+      "to": "Khoan",
+      "properties": { "label": "enum doi_chieu_label (required)", "score": "float" }
+    },
+    { "type": "TOM_TAT_TU", "from": "BaiTomTat", "to": ["Khoan", "Dieu", "VanBanPhapLuat"] },
+    { "type": "DE_XUAT_CHO", "from": "DeXuatDinhChinh", "to": ["AlertMeta", "YKien"] },
+    { "type": "CAN_CU", "from": "DeXuatDinhChinh", "to": "Khoan" },
+    { "type": "CO_FILE", "from": "VanBanPhapLuat", "to": "VanBanFile" }
+  ],
+  "invariants": [
+    "Citation phai lay noi_dung tu Khoan trong Neo4j bang khoan_id; vector KHONG phai nguon trich dan.",
+    "Citizen chi doc VanBanPhapLuat.visibility='public' va BaiTomTat.status='published' (filter o BE3).",
+    "Canh GAN_CO_CAN_KIEM_CHUNG bat buoc co score + method.",
+    "Canh DOI_CHIEU.label thuoc {khop, mau_thuan, khong_ro}.",
+    "MERGE idempotent: replay tu raw_checksum -> cung khoan_id."
+  ],
+  "audit_note": "PUBLISHED_AS (BaiTomTat) duoc ghi audit o Postgres (bang audit_log/briefs), khong bat buoc la canh Neo4j."
+}
