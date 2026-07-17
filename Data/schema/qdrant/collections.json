@@ -1,0 +1,44 @@
+{
+  "$comment": "Spec collections Qdrant. Nguon: Data/SYSTEM_DATA.md §4.3. Vector KHONG phai nguon trich dan - citation lay noi_dung tu Neo4j bang khoan_id. Dim mac dinh 1024 (bge-m3); doi model phai bao BE2 va cap nhat EMBEDDING_DIM.",
+  "version": "1.0.0",
+  "default_dim": 1024,
+  "default_distance": "Cosine",
+  "collections": [
+    {
+      "name": "khoan",
+      "vector_size": 1024,
+      "distance": "Cosine",
+      "writer": "BE1 (sau extract)",
+      "payload_schema": {
+        "khoan_id": "keyword (bat buoc, -> Neo4j Khoan.khoan_id)",
+        "van_ban_id": "keyword",
+        "dieu": "keyword",
+        "text_preview": "text"
+      },
+      "payload_indexes": ["khoan_id", "van_ban_id"]
+    },
+    {
+      "name": "baidang",
+      "vector_size": 1024,
+      "distance": "Cosine",
+      "writer": "BE2",
+      "payload_schema": {
+        "bai_dang_id": "keyword (bat buoc)",
+        "chu_de": "keyword",
+        "platform": "keyword"
+      },
+      "payload_indexes": ["bai_dang_id", "chu_de", "platform"]
+    },
+    {
+      "name": "chude",
+      "vector_size": 1024,
+      "distance": "Cosine",
+      "writer": "BE2",
+      "payload_schema": {
+        "slug": "keyword (bat buoc, -> Neo4j ChuDe.slug)",
+        "ten": "text"
+      },
+      "payload_indexes": ["slug"]
+    }
+  ]
+}

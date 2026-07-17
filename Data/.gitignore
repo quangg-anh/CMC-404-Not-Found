@@ -1,0 +1,7 @@
+# Khong commit noi dung backup / dump / snapshot (giu thu muc qua .gitkeep)
+backups/**/*
+!backups/**/.gitkeep
+
+# File dump tam
+*.dump
+*.snapshot

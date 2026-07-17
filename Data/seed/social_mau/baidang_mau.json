@@ -1,0 +1,21 @@
+{
+  "$comment": "Bai dang MXH gia lap (Phase B). tac_gia_hash = PII da bam, khong luu thong tin that. BE2 se ingest + link -> ChuDe -> Khoan.",
+  "posts": [
+    {
+      "platform": "facebook",
+      "external_id": "fb_seed_0001",
+      "noi_dung": "Nghe noi khong niem yet cong khai bi phat toi 3 trieu that khong moi nguoi?",
+      "tac_gia_hash": "sha256:1a2b3c_placeholder",
+      "url": "https://example.invalid/post/0001",
+      "thoi_gian": "2024-04-01T09:00:00+07:00"
+    },
+    {
+      "platform": "youtube",
+      "external_id": "yt_seed_0002",
+      "noi_dung": "Thoi han khac phuc la 30 ngay hay 60 ngay vay?",
+      "tac_gia_hash": "sha256:4d5e6f_placeholder",
+      "url": "https://example.invalid/watch?v=0002",
+      "thoi_gian": "2024-04-02T14:30:00+07:00"
+    }
+  ]
+}

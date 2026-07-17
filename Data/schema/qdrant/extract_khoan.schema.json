@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://legal-kg/schema/extract_khoan.schema.json",
+  "title": "ExtractKhoanOutput",
+  "description": "Schema-locked cho output NER/RE cua BE1 tren 1 Khoan. Moi entity/relation phai truy nguon ve khoan_id. LLM output phai validate schema nay (SYSTEM_BACKEND §8).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["khoan_id", "entities", "relations"],
+  "properties": {
+    "khoan_id": {
+      "type": "string",
+      "description": "-> Neo4j Khoan.khoan_id, pattern {so_hieu_norm}::D{dieu}.K{khoan}",
+      "pattern": "^.+::D.+\\.K.+$"
+    },
+    "van_ban_id": { "type": "string" },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["local_id", "type", "mo_ta"],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "id tam trong pham vi khoan de tham chieu o relations"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["ChuThe", "NghiaVu", "QuyenLoi", "HanhViCam", "ThoiHan", "CheTai"]
+          },
+          "mo_ta": { "type": "string", "minLength": 1 },
+          "gia_tri": {
+            "type": "string",
+            "description": "gia tri chuan hoa neu co (vd ThoiHan: '30 ngay', CheTai: muc phat)"
+          }
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "description": "Quan he noi bo khoan. QUY_DINH: Khoan->entity; AP_DUNG_CHO: entity->ChuThe.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "source", "target"],
+        "properties": {
+          "type": { "type": "string", "enum": ["QUY_DINH", "AP_DUNG_CHO"] },
+          "source": {
+            "type": "string",
+            "description": "'khoan' (chinh no) hoac local_id cua mot entity"
+          },
+          "target": {
+            "type": "string",
+            "description": "local_id cua entity dich"
+          }
+        }
+      }
+    },
+    "needs_review": {
+      "type": "boolean",
+      "default": false,
+      "description": "BE1 danh dau khi parse/extract khong chac chan"
+    }
+  }
+}
