@@ -6,6 +6,34 @@
 
 ---
 
+## 0. Cập nhật 2026-07-17 (đợt 2 — sau rà soát mã nguồn toàn hệ thống)
+
+Đã sửa các lỗi chặn (P0) và nghiêm trọng (P1) từ báo cáo rà soát:
+
+**Backend P0**
+- ✅ **Bypass xác thực (L1)**: `role_checker` thiếu `Depends(get_current_user)` → đã thêm. Kiểm chứng: inject role qua body không token → **403** (trước là 200); admin bearer hợp lệ → **200** (trước 422); citizen vào admin → **403**.
+- ✅ **RAG rỗng (L2)**: `qa_service` giờ **embed câu hỏi thật** (`Embedder` bge-m3) rồi search Qdrant; gọi `router.complete(task, prompt, schema, complexity)` đúng chữ ký + prompt chứa `retrieved_context`. `graph_paths` không còn lấy từ output LLM.
+- ✅ **Cheat keyword (L3)**: không còn trong code hiện tại (đã xác minh).
+- ✅ **Test chạy được (L4)**: bổ sung `fastapi/uvicorn/redis/pdfplumber` + `pytest.ini` (asyncio_mode=auto). **24/24 test PASS** (~1.9s) qua `tests/conftest.py` fake **chỉ dùng cho test** (production vẫn kết nối thật).
+
+**Backend P1**
+- ✅ CORS bỏ `"*"` (giữ origin tường minh) — hết xung đột với `allow_credentials`.
+- ✅ Citizen tải file: kiểm tra visibility **fail-closed** (chỉ trả khi file/VB cha là public).
+- ✅ `VersionDiff.diff()` (difflib) — hết crash 500 ở `/admin/legal/diff`.
+- ✅ `brief_service.py` khớp schema `003` (tieu_de/media_type/citations/UUID/created_by); PATCH **không** set `published` trực tiếp; publish đi qua `PublishGate`.
+- ✅ Cạnh `BaiDang→YKien` đổi tên `CO_YKIEN` (adapter + ontology) — hết vi phạm ngữ nghĩa `LIEN_QUAN`.
+- ✅ Worker `on_startup` populate `ctx` (+ adapter mới `Neo4jLegalRepository`) — hết `KeyError` job đầu tiên.
+- ✅ `GraphQueryService`: sửa kwarg `driver=` + thêm tham số `limit` — hết crash 500 `/admin/graph/neighborhood`.
+
+**Frontend P1/P2**
+- ✅ Sửa toàn bộ lỗi TS chặn build (admin + citizen) → **cả 2 app `npm run build` OK**.
+- ✅ `RiskBadge` nhãn `khop` = "Khớp với quy định đã liên kết" (không phán tuyệt đối).
+- ✅ Gỡ tuyên bố sai ở Login: "Bảo mật cấp độ 3", "E2EE".
+- ✅ Wire flagship **Citizen QA** (`AskPage`) gọi thật `POST /citizen/qa/ask` (api-client `src/lib/api.ts`, dùng `VITE_API_URL`, mặc định `http://localhost:8000`). Bỏ `setTimeout` giả.
+- ⏳ Còn lại: 23 endpoint khác trên các màn admin/citizen vẫn dùng mock — cần wire tiếp theo `SYSTEM_FRONTEND.md` §8.
+
+---
+
 ## 1. Ma trận kết nối (audit tĩnh trên code hiện tại)
 
 | Cặp | Trạng thái | Ghi chú |
@@ -107,8 +135,8 @@ Thứ tự phụ thuộc: **DB → BE → FE**.
 
 - [x] **BE2**: sửa `postgres_content.py` theo §2 (map đúng cột, cấp `id` từ uuid Neo4j). ✅ 2026-07-17
 - [x] **BE2 + DB**: chốt key `AlertMeta`/`YKien` (§3) → BE dùng `uuid`, DB thêm cạnh `LIEN_QUAN BaiDang→YKien`. ✅
-- [ ] **BE**: sửa ImportError để `uvicorn` boot được (§7).
-- [ ] **FE**: thêm api-client + thay mock bằng gọi API thật (§4).
+- [x] **BE**: boot OK; toàn bộ P0/P1 đã sửa; 24/24 test PASS (§0).
+- [x] **FE**: thêm api-client + wire Citizen QA thật (§0). ⏳ còn 23 endpoint khác.
 - [ ] **Team**: chạy end-to-end 1 lần (DB seed → BE ingest/QA → FE hiển thị).
 - [x] **DB**: schema/seed/gold/backup sẵn sàng, connection khớp env BE.
 
@@ -127,5 +155,9 @@ from 'app.services.publish_gate'  ... app/services/brief_service.py line 7
 - **Đã sửa:** đổi import sang `PublishGateService`; `publish_brief()` giờ khởi tạo `PublishGateService(pool, driver)` và gọi `verify_and_publish_brief(brief_id, user_token, item)`, xử lý tuple trả về.
 - **Xác nhận:** `python -c "import app.main"` OK; `uvicorn ... :8010` → `GET /health` = `200 {"status":"ok"}`.
 
-### 7.1 Còn lại (BE functional, KHÔNG gây crash)
-`brief_service.py` (list/get/generate/update) vẫn dùng cột **không có trong schema**: `tuc_danh`, `citations_json`, và sinh id dạng `brief-xxxx` (không phải UUID). Các thao tác này bọc trong `try/except: pass` nên **không crash**, nhưng sẽ **không ghi được vào Postgres thật** (khác với `postgres_content.py` đã đúng: `tieu_de`, `citations`, `media_type`, id=UUID). BE nên hợp nhất `brief_service.py` theo đúng cột schema `003_content_publish.sql`.
+### 7.1 ĐÃ FIX (2026-07-17 đợt 2)
+`brief_service.py` đã hợp nhất theo schema `003_content_publish.sql`: dùng `tieu_de`, `media_type` (map article→text, infographic→image, video_script→video), `citations` (JSONB), `id` = **UUID**, ghi `created_by`. `update_brief` không đổi status (publish chỉ qua `PublishGate`). `publish_brief(brief_id, actor) → (ok, data, errors)` và `archive_brief(brief_id, actor)` khớp router.
+
+### 7.2 Lưu ý còn lại (không chặn)
+- `suggest_service.py` vẫn dùng cột `noi_dung_dinh_chinh/khoan_doi_chieu_id` (không có trong schema `003` vốn định nghĩa `draft_text/alert_ids/khoan_ids/claim_labels`). Bọc `try/except` nên không crash; guardrail cấm `published` hoạt động đúng. Nên align sau.
+- API ingest hiện chỉ INSERT `jobs(status='queued')` mà **chưa enqueue** arq thật (worker đã sẵn sàng ctx). Cần nối enqueue để "queued" đúng nghĩa.
