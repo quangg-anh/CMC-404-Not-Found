@@ -1,5 +1,5 @@
 import React from 'react';
-import { CaretRight, PlusCircle, MinusCircle, Link as LinkIcon, MagicWand } from '@phosphor-icons/react';
+import { PlusCircle, MinusCircle, Link as LinkIcon, MagicWand } from '@phosphor-icons/react';
 
 export interface DiffHunk {
   id: string;

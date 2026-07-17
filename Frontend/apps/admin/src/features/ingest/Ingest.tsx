@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { UploadSimple, FilePdf, FileDoc, Checks, CircleDashed, CheckCircle, Warning, Clock } from '@phosphor-icons/react';
+import { UploadSimple, FilePdf, FileDoc, Checks, CircleDashed, CheckCircle, Clock } from '@phosphor-icons/react';
 
 interface JobStatus {
   id: string;

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MagnifyingGlass, Funnel, ChartLineUp, Users, CheckCircle, Warning, CaretRight, Robot } from '@phosphor-icons/react';
-import { RiskBadge, RiskLabel } from '../../../../../packages/ui-legal/src/components/RiskBadge';
+import { RiskBadge, type RiskLabel } from '../../../../../packages/ui-legal/src/components/RiskBadge';
 import { CitationCard } from '../../../../../packages/ui-legal/src/components/CitationCard';
 
 interface AlertMeta {
@@ -21,7 +21,7 @@ interface AlertMeta {
 }
 
 export default function AlertsPage() {
-  const [alerts, setAlerts] = useState<AlertMeta[]>([
+  const [alerts] = useState<AlertMeta[]>([
     {
       id: 'ALT-8291',
       chuDe: 'Nồng độ cồn',

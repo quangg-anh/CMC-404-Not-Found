@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { PaperPlaneRight, User, Robot, Scales, ShieldCheck, ArrowLeft, Trash, Lightbulb, WarningCircle, CircleNotch } from '@phosphor-icons/react';
+import { PaperPlaneRight, User, Robot, Scales, ShieldCheck, ArrowLeft, Trash, Lightbulb, WarningCircle } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
 import { CitationCard } from '../../../../../packages/ui-legal/src/components/CitationCard';
 import { GraphPathBreadcrumb } from '../../../../../packages/ui-legal/src/components/GraphPathBreadcrumb';

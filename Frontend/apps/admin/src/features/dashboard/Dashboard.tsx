@@ -1,4 +1,3 @@
-import React from 'react';
 import { WarningCircle, TrendUp, Article, ShareNetwork, ListMagnifyingGlass, ArrowUpRight } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
 

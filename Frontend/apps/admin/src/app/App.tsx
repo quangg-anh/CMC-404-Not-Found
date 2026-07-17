@@ -89,7 +89,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   if (!isAuthenticated) {
-    return <LoginPage onLogin={(role) => setIsAuthenticated(true)} />;
+    return <LoginPage onLogin={() => setIsAuthenticated(true)} />;
   }
 
   return (

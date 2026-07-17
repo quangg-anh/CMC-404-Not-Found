@@ -54,7 +54,7 @@ export default function LoginPage({ onLogin }: { onLogin: (role: string) => void
           <div className="flex items-center gap-6 text-sm font-medium text-slate-300">
             <div className="flex items-center gap-2">
               <ShieldCheck size={20} className="text-success" weight="fill" />
-              Bảo mật cấp độ 3
+              Kiểm duyệt bởi con người trước khi xuất bản
             </div>
           </div>
         </div>
@@ -141,7 +141,7 @@ export default function LoginPage({ onLogin }: { onLogin: (role: string) => void
           <div className="mt-12 pt-8 border-t border-border flex flex-col items-center gap-3 text-sm">
             <p className="text-muted flex items-center gap-2">
               <ShieldCheck size={18} weight="fill" className="text-slate-400" />
-              Kết nối được mã hóa đầu cuối (E2EE)
+              Xác thực bằng tài khoản định danh cán bộ
             </p>
           </div>
         </div>

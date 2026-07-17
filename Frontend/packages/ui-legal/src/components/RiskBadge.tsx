@@ -13,7 +13,7 @@ export const RiskBadge: React.FC<RiskBadgeProps> = ({ label, confidence }) => {
     khop: {
       color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
       icon: <CheckCircle size={14} weight="fill" />,
-      text: 'Khớp quy định'
+      text: 'Khớp với quy định đã liên kết'
     },
     mau_thuan: {
       color: 'bg-red-50 text-red-700 border-red-200',

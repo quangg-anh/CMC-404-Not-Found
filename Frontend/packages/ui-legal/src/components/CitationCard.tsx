@@ -9,7 +9,7 @@ interface CitationCardProps {
   url?: string;
 }
 
-export const CitationCard: React.FC<CitationCardProps> = ({ khoan_id, van_ban, dieu, quote, url }) => {
+export const CitationCard: React.FC<CitationCardProps> = ({ van_ban, dieu, quote, url }) => {
   return (
     <div className="group bg-white rounded-xl border border-slate-200/80 shadow-sm hover:shadow-lg hover:shadow-brand/5 hover:border-brand/30 transition-all duration-300 overflow-hidden relative">
       <div className="absolute top-0 left-0 w-1 h-full bg-brand/20 group-hover:bg-brand transition-colors duration-300"></div>

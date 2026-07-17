@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { GitDiff, ArrowsLeftRight, CaretDown, FileText } from '@phosphor-icons/react';
-import { DiffHunkList, DiffHunk } from '../../../../../packages/ui-legal/src/components/DiffHunkList';
+import { DiffHunkList, type DiffHunk } from '../../../../../packages/ui-legal/src/components/DiffHunkList';
 
 export default function DiffPage() {
   const [mockHunks] = useState<DiffHunk[]>([
