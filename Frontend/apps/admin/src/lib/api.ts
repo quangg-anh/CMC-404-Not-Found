@@ -52,3 +52,10 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return parse<T>(await fetch(`${API_BASE}${path}`, { method: 'PATCH', headers: headers(true), body: JSON.stringify(body) }));
 }
+
+// Multipart upload (e.g. raw legal files). Do NOT set Content-Type — the browser sets the
+// multipart boundary automatically. Auth header is still attached.
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const h: Record<string, string> = { Accept: 'application/json', Authorization: `Bearer ${getToken()}` };
+  return parse<T>(await fetch(`${API_BASE}${path}`, { method: 'POST', headers: h, body: form }));
+}

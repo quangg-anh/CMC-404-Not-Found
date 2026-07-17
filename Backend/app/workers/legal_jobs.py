@@ -35,11 +35,14 @@ async def legal_ingest(ctx, job_id: str, payload: Dict[str, Any]):
     pool = ctx.get("db_pool")
     qdrant = ctx.get("qdrant")
     embedder = ctx.get("embedder")
+    minio = ctx.get("minio")
     logger.info("Worker 'legal_ingest' processing job %s (so_hieu=%s)", job_id, payload.get("so_hieu"))
 
     await _set_job_status(pool, job_id, "running")
     try:
-        result = await run_legal_ingest(driver, payload, qdrant=qdrant, embedder=embedder)
+        result = await run_legal_ingest(
+            driver, payload, qdrant=qdrant, embedder=embedder, pool=pool, minio=minio
+        )
     except Exception as exc:  # noqa: BLE001
         await _set_job_status(pool, job_id, "error", str(exc))
         logger.exception("legal_ingest job %s failed", job_id)
