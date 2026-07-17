@@ -7,9 +7,6 @@ from pydantic import TypeAdapter
 from app.config import BE2Config, get_config
 from app.exceptions import ExternalServiceError, ValidationError
 
-_MODEL_CACHE: dict[str, Any] = {}
-
-
 def normalize_text(text: str) -> str:
     return " ".join(text.strip().split())
 
@@ -38,7 +35,49 @@ class Embedder:
     async def _embed_batch(self, batch: list[str]) -> list[list[float]]:
         if self.config.embedding_provider == "tei":
             return await self._embed_tei(batch)
+        if self.config.embedding_provider == "openai":
+            return await self._embed_openai(batch)
         return await self._embed_local(batch)
+
+    async def _embed_openai(self, batch: list[str]) -> list[list[float]]:
+        """Embed via an OpenAI-compatible ``/embeddings`` endpoint (Ollama /v1, vLLM, OpenAI, ...).
+
+        This replaces the local torch/sentence-transformers path so no model runs in-process.
+        """
+        if self.config.embedding_base_url is None:
+            raise ValidationError("BE2_EMBEDDING_BASE_URL is required for openai embedding provider")
+        client = self._http or httpx.AsyncClient(timeout=self.config.embedding_timeout_s)
+        close = self._http is None
+        headers = {"Content-Type": "application/json"}
+        if self.config.embedding_api_key:
+            headers["Authorization"] = f"Bearer {self.config.embedding_api_key}"
+        url = f"{str(self.config.embedding_base_url).rstrip('/')}/embeddings"
+        try:
+            response = await client.post(
+                url,
+                headers=headers,
+                json={"model": self.config.embedding_model, "input": batch},
+            )
+            response.raise_for_status()
+            data = response.json()
+            items = data.get("data", [])
+            # Preserve request order (OpenAI returns an `index` per item).
+            items_sorted = sorted(items, key=lambda x: x.get("index", 0))
+            raw = [item["embedding"] for item in items_sorted]
+            if len(raw) != len(batch):
+                raise ExternalServiceError(
+                    "OpenAI-compatible embedding count mismatch",
+                    details={"expected": len(batch), "actual": len(raw)},
+                )
+            return TypeAdapter(list[list[float]]).validate_python(raw)
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            raise ExternalServiceError(
+                "OpenAI-compatible embedding request failed",
+                details={"provider": "openai", "url": url},
+            ) from exc
+        finally:
+            if close:
+                await client.aclose()
 
     async def _embed_tei(self, batch: list[str]) -> list[list[float]]:
         if self.config.tei_url is None:
@@ -58,18 +97,18 @@ class Embedder:
                 await client.aclose()
 
     async def _embed_local(self, batch: list[str]) -> list[list[float]]:
-        model = self._model or self._get_cached_model()
-        vectors = await asyncio.to_thread(model.encode, batch, normalize_embeddings=True)
-        return TypeAdapter(list[list[float]]).validate_python(vectors.tolist() if hasattr(vectors, "tolist") else vectors)
-
-    def _get_cached_model(self) -> Any:
-        if self.config.embedding_model not in _MODEL_CACHE:
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError as exc:
-                raise ExternalServiceError("sentence-transformers is not installed") from exc
-            _MODEL_CACHE[self.config.embedding_model] = SentenceTransformer(self.config.embedding_model)
-        return _MODEL_CACHE[self.config.embedding_model]
+        # The local torch/sentence-transformers embedder has been removed. If an injected model was
+        # provided (tests), use it; otherwise instruct the operator to use the OpenAI-compatible API.
+        if self._model is not None:
+            vectors = await asyncio.to_thread(self._model.encode, batch, normalize_embeddings=True)
+            return TypeAdapter(list[list[float]]).validate_python(
+                vectors.tolist() if hasattr(vectors, "tolist") else vectors
+            )
+        raise ExternalServiceError(
+            "The local torch embedder was removed; set BE2_EMBEDDING_PROVIDER=openai "
+            "(OpenAI-compatible /v1/embeddings, e.g. Ollama bge-m3).",
+            details={"provider": "local"},
+        )
 
     def _validate_vectors(self, vectors: list[list[float]], expected_count: int) -> None:
         if len(vectors) != expected_count:

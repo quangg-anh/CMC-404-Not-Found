@@ -6,12 +6,17 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 class BE2Config(BaseModel):
-    embedding_provider: str = Field(default="local", pattern="^(local|tei)$")
-    embedding_model: str = "BAAI/bge-m3"
+    # Embeddings now go through an OpenAI-compatible API (e.g. Ollama /v1/embeddings) by default;
+    # the legacy torch/sentence-transformers "local" provider is kept only for backward compat.
+    embedding_provider: str = Field(default="openai", pattern="^(local|tei|openai)$")
+    embedding_model: str = "bge-m3"
     embedding_batch_size: int = Field(default=32, ge=1, le=256)
-    embedding_timeout_s: float = Field(default=30.0, gt=0)
-    embedding_dimension: int | None = None
+    embedding_timeout_s: float = Field(default=60.0, gt=0)
+    embedding_dimension: int | None = 1024
     tei_url: HttpUrl | None = None
+    # OpenAI-compatible embeddings endpoint (works against Ollama's /v1, vLLM, LM Studio, OpenAI).
+    embedding_base_url: HttpUrl | None = Field(default="http://localhost:11434/v1")
+    embedding_api_key: str | None = "ollama"
 
     llm_gateway_url: HttpUrl | None = None
     llm_local_model: str = "gemma-local"
@@ -36,12 +41,14 @@ class BE2Config(BaseModel):
 @lru_cache(maxsize=1)
 def get_config() -> BE2Config:
     return BE2Config(
-        embedding_provider=os.getenv("BE2_EMBEDDING_PROVIDER", "local"),
-        embedding_model=os.getenv("BE2_EMBEDDING_MODEL", "BAAI/bge-m3"),
+        embedding_provider=os.getenv("BE2_EMBEDDING_PROVIDER", "openai"),
+        embedding_model=os.getenv("BE2_EMBEDDING_MODEL", "bge-m3"),
         embedding_batch_size=int(os.getenv("BE2_EMBEDDING_BATCH_SIZE", "32")),
-        embedding_timeout_s=float(os.getenv("BE2_EMBEDDING_TIMEOUT_S", "30")),
-        embedding_dimension=int(os.getenv("BE2_EMBEDDING_DIMENSION")) if os.getenv("BE2_EMBEDDING_DIMENSION") else None,
+        embedding_timeout_s=float(os.getenv("BE2_EMBEDDING_TIMEOUT_S", "60")),
+        embedding_dimension=int(os.getenv("BE2_EMBEDDING_DIMENSION")) if os.getenv("BE2_EMBEDDING_DIMENSION") else 1024,
         tei_url=os.getenv("BE2_TEI_URL") or None,
+        embedding_base_url=os.getenv("BE2_EMBEDDING_BASE_URL", "http://localhost:11434/v1") or None,
+        embedding_api_key=os.getenv("BE2_EMBEDDING_API_KEY", "ollama") or None,
         llm_gateway_url=os.getenv("BE2_LLM_GATEWAY_URL") or None,
         llm_local_model=os.getenv("BE2_LLM_LOCAL_MODEL", "gemma-local"),
         llm_large_model=os.getenv("BE2_LLM_LARGE_MODEL", "large-schema-locked"),
