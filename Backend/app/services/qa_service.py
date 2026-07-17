@@ -59,9 +59,62 @@ class QAService:
         # Default is the offline heuristic NLI, so this adds no external dependency.
         self.nli = nli or NLIService()
 
+    # Explicit legal references a user may type directly into the question.
+    # Khoản/Điều id, e.g. "01/2016/NQ-HDND::D1.K2" or "03-VBHN-BTC||12-02-2026::D40".
+    _KHOAN_ID_RE = re.compile(r"[A-Za-z0-9/.|\-]+::D\d+(?:\.K\d+)?")
+    # Document number (số hiệu), e.g. "01/2016/NQ-HDND", "168/2024/NĐ-CP".
+    _SO_HIEU_RE = re.compile(r"\d{1,4}/\d{4}/[A-Za-zĐĐđ\-]+")
+
+    async def _direct_lookup(self, question: str, audience: str) -> list[CandidateKhoan]:
+        """Fetch Khoản referenced EXPLICITLY by id/số hiệu in the question, straight from Neo4j.
+
+        Vector search matches by meaning, so typing a raw id ("nội dung X::D1.K2") returns semantic
+        garbage. This shortcut resolves the exact Khoản (or all Khoản of a văn bản when only the số
+        hiệu is given) so a direct citation lookup always works.
+        """
+        if not (self.driver and hasattr(self.driver, "session")):
+            return []
+        khoan_ids = list(dict.fromkeys(self._KHOAN_ID_RE.findall(question)))
+        # Số hiệu tokens that are NOT merely the prefix of an already-captured full khoản id.
+        so_hieus = [s for s in dict.fromkeys(self._SO_HIEU_RE.findall(question))
+                    if not any(k.startswith(s + "::") for k in khoan_ids)]
+        if not khoan_ids and not so_hieus:
+            return []
+        pub = "AND coalesce(k.visibility, 'public') = 'public'" if audience == "citizen" else ""
+        out: list[CandidateKhoan] = []
+        try:
+            async with self.driver.session() as session:
+                if khoan_ids:
+                    q = f"MATCH (k:Khoan) WHERE k.khoan_id IN $ids {pub} RETURN k.khoan_id AS kid, k.noi_dung AS nd"
+                    res = await session.run(q, ids=khoan_ids)
+                    async for r in res:
+                        out.append(CandidateKhoan(khoan_id=str(r["kid"] or ""), noi_dung=str(r["nd"] or ""), score=1.0))
+                if so_hieus:
+                    q2 = (
+                        "MATCH (v:VanBanPhapLuat)-[:CO_DIEU]->(:Dieu)-[:CO_KHOAN]->(k:Khoan) "
+                        f"WHERE v.so_hieu IN $sh {pub} "
+                        "RETURN k.khoan_id AS kid, k.noi_dung AS nd LIMIT 40"
+                    )
+                    res2 = await session.run(q2, sh=so_hieus)
+                    async for r in res2:
+                        out.append(CandidateKhoan(khoan_id=str(r["kid"] or ""), noi_dung=str(r["nd"] or ""), score=0.95))
+        except Exception:
+            return [c for c in out if c.khoan_id and c.noi_dung]
+        return [c for c in out if c.khoan_id and c.noi_dung]
+
     async def retrieve_candidates(self, question: str, audience: str = "citizen") -> list[CandidateKhoan]:
-        """Retrieve candidate Khoan strictly from Qdrant vector store and Neo4j graph expansion."""
-        candidates: list[CandidateKhoan] = []
+        """Retrieve candidate Khoan: explicit id/số-hiệu lookup first, then Qdrant vector, then graph."""
+        # 0. Direct lookup for explicit legal references (id / số hiệu) — highest priority.
+        # When the user explicitly names a provision, return ONLY those (no vector noise).
+        candidates: list[CandidateKhoan] = await self._direct_lookup(question, audience)
+        if candidates:
+            return [c for c in candidates if c.khoan_id and c.noi_dung]
+        # Explicit reference but nothing digitized for it → return empty (honest "no data") instead
+        # of vector-similarity garbage from unrelated documents.
+        if self._KHOAN_ID_RE.search(question) or self._SO_HIEU_RE.search(question):
+            return []
+        seen_ids: set[str] = set()
+
         if self.qdrant and self.embedder:
             try:
                 # Embed the question, then search the real Qdrant collection by vector
@@ -71,8 +124,12 @@ class QAService:
                     p = hit.get("payload", {})
                     if audience == "citizen" and p.get("visibility", "public") != "public":
                         continue
+                    kid = p.get("khoan_id", "")
+                    if kid in seen_ids:
+                        continue
+                    seen_ids.add(kid)
                     candidates.append(CandidateKhoan(
-                        khoan_id=p.get("khoan_id", ""),
+                        khoan_id=kid,
                         noi_dung=p.get("noi_dung", ""),
                         score=hit.get("score", 0.0),
                     ))

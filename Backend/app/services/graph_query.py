@@ -18,9 +18,16 @@ class GraphQueryService:
 
         if self.driver and hasattr(self.driver, "session"):
             try:
+                # Match a seed by any natural key: internal id, khoản/điều id, slug, OR the human
+                # document number (so_hieu). Also match by prefix so typing just the số hiệu
+                # ("01/2016/NQ-HDND") seeds the whole document tree (its Điều/Khoản), not only the
+                # exact "01/2016/NQ-HDND::D1.K2".
                 query = f"""
                 MATCH path = (seed)-[r*1..{bounded_depth}]-(neighbor)
-                WHERE seed.vb_id = $seed_id OR seed.khoan_id = $seed_id OR seed.slug = $seed_id OR id(seed) = $seed_id
+                WHERE seed.vb_id = $seed_id OR seed.khoan_id = $seed_id OR seed.dieu_id = $seed_id
+                   OR seed.so_hieu = $seed_id OR seed.slug = $seed_id
+                   OR seed.khoan_id STARTS WITH ($seed_id + '::')
+                   OR seed.dieu_id STARTS WITH ($seed_id + '::')
                 RETURN nodes(path) AS ns, relationships(path) AS rels
                 LIMIT {bounded_limit}
                 """
