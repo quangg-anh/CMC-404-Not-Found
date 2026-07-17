@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ShieldCheck, Eye, EyeSlash, ArrowRight, Spinner, Scales } from '@phosphor-icons/react';
+import { setToken } from '../../lib/api';
 
 export default function LoginPage({ onLogin }: { onLogin: (role: string) => void }) {
   const [email, setEmail] = useState('');
@@ -18,7 +19,9 @@ export default function LoginPage({ onLogin }: { onLogin: (role: string) => void
         // Redirect to Citizen portal using the shared port
         window.location.href = '/citizen';
       } else {
-        // Admin stays in the Admin dashboard
+        // Admin stays in the Admin dashboard. Store a dev bearer so RBAC-protected
+        // /admin/* calls carry an Authorization header (dev/eval multi-role token).
+        setToken('test-admin-multi');
         onLogin('admin');
       }
     }, 800);

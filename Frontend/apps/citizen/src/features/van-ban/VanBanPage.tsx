@@ -1,10 +1,68 @@
-import { ArrowLeft, BookOpen, Clock, FilePdf, DownloadSimple, ShieldCheck, TreeStructure, BookmarkSimple } from '@phosphor-icons/react';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, BookOpen, Clock, ShieldCheck, TreeStructure, BookmarkSimple, Spinner, FileText } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
+import { apiGet } from '../../lib/api';
+
+interface Khoan {
+  khoan_id?: string;
+  so_khoan?: string | number;
+  noi_dung?: string;
+  dieu?: string;
+}
+
+interface VanBan {
+  vb_id?: string;
+  so_hieu?: string;
+  ten?: string;
+  ngay_ban_hanh?: string;
+  co_quan_ban_hanh?: string;
+  trang_thai?: string;
+  tom_tat?: string;
+  tree?: Khoan[];
+}
+
+interface VanBanListResponse {
+  items: VanBan[];
+  total: number;
+}
+
+function docId(v: VanBan): string {
+  return v.vb_id ?? v.so_hieu ?? '';
+}
 
 export default function VanBanPage() {
+  const [docs, setDocs] = useState<VanBan[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<VanBan | null>(null);
+  const [listLoading, setListLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiGet<VanBanListResponse>('/citizen/legal/van-ban')
+      .then((data) => {
+        const items = data.items ?? [];
+        setDocs(items);
+        if (items.length > 0) setSelectedId(docId(items[0]));
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Lỗi tải danh sách văn bản'))
+      .finally(() => setListLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setDetail(null);
+      return;
+    }
+    setDetailLoading(true);
+    apiGet<VanBan>(`/citizen/legal/van-ban/${encodeURIComponent(selectedId)}`)
+      .then((data) => setDetail(data))
+      .catch(() => setDetail(null))
+      .finally(() => setDetailLoading(false));
+  }, [selectedId]);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Header (Slim version for document viewer) */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 text-slate-500 hover:text-brand font-semibold text-sm transition-colors">
@@ -14,142 +72,114 @@ export default function VanBanPage() {
             <BookOpen size={18} className="text-brand" weight="fill" />
             Tra cứu Văn bản
           </div>
-          <div className="w-24"></div> {/* Spacer for centering */}
+          <div className="w-24"></div>
         </div>
       </header>
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex flex-col md:flex-row gap-8">
-        
-        {/* Left Sidebar: TOC (SimpleVanBanTree) */}
+        {/* Left: document list */}
         <aside className="w-full md:w-1/3 lg:w-1/4 shrink-0">
           <div className="bg-white rounded-2xl border border-slate-200 p-5 sticky top-20 shadow-[0_2px_10px_rgb(0,0,0,0.02)]">
             <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-4 pb-4 border-b border-slate-100">
-              <TreeStructure size={20} className="text-brand" /> Cấu trúc văn bản
+              <TreeStructure size={20} className="text-brand" /> Văn bản công khai
             </h3>
-            
-            <nav className="space-y-1">
-              <div className="py-2 px-3 bg-brand/5 text-brand rounded-lg font-semibold text-sm cursor-pointer border border-brand/10">
-                Chương I: Quy định chung
+
+            {listLoading ? (
+              <div className="py-8 text-center text-slate-400 text-sm font-semibold flex items-center justify-center gap-2">
+                <Spinner size={16} className="animate-spin" /> Đang tải…
               </div>
-              <div className="py-2 px-3 pl-6 text-slate-600 hover:bg-slate-50 rounded-lg text-sm font-medium cursor-pointer transition-colors">
-                Điều 1. Phạm vi điều chỉnh
-              </div>
-              <div className="py-2 px-3 pl-6 text-slate-600 hover:bg-slate-50 rounded-lg text-sm font-medium cursor-pointer transition-colors">
-                Điều 2. Đối tượng áp dụng
-              </div>
-              
-              <div className="py-2 px-3 text-slate-700 hover:bg-slate-50 rounded-lg font-semibold text-sm cursor-pointer transition-colors mt-2">
-                Chương II: Hành vi vi phạm
-              </div>
-              <div className="py-2 px-3 pl-6 text-slate-600 hover:bg-slate-50 rounded-lg text-sm font-medium cursor-pointer transition-colors">
-                Điều 5. Xử phạt người điều khiển xe ô tô
-              </div>
-              <div className="py-2 px-3 pl-6 text-slate-600 hover:bg-slate-50 rounded-lg text-sm font-medium cursor-pointer transition-colors">
-                Điều 6. Xử phạt người điều khiển xe máy
-              </div>
-            </nav>
+            ) : docs.length === 0 ? (
+              <p className="py-8 text-center text-slate-400 text-sm font-medium">Chưa có văn bản công khai.</p>
+            ) : (
+              <nav className="space-y-1">
+                {docs.map((d) => {
+                  const id = docId(d);
+                  const active = id === selectedId;
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => setSelectedId(id)}
+                      className={`w-full text-left py-2.5 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        active ? 'bg-brand/5 text-brand border border-brand/10 font-semibold' : 'text-slate-600 hover:bg-slate-50 border border-transparent'
+                      }`}
+                    >
+                      <div className="font-bold text-xs uppercase tracking-wide mb-0.5">{d.so_hieu ?? id}</div>
+                      <div className="line-clamp-2 text-slate-500">{d.ten ?? 'Văn bản pháp luật'}</div>
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
           </div>
         </aside>
 
-        {/* Main Content Area */}
+        {/* Main content */}
         <div className="flex-1 max-w-3xl">
-          {/* Document Meta (Tên + Số hiệu + Tóm tắt) */}
-          <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm mb-6">
-            <div className="flex flex-wrap items-center gap-3 mb-4">
-              <span className="inline-flex items-center px-3 py-1 bg-red-50 text-brand text-xs font-bold rounded-lg uppercase tracking-wider border border-red-100">
-                100/2019/NĐ-CP
-              </span>
-              <span className="inline-flex items-center px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg uppercase tracking-wider border border-emerald-100">
-                <ShieldCheck size={14} className="mr-1" /> Còn hiệu lực
-              </span>
+          {error ? (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-2xl px-6 py-5 text-sm font-semibold">{error}</div>
+          ) : detailLoading ? (
+            <div className="bg-white rounded-3xl p-16 border border-slate-200 shadow-sm text-center text-slate-400 font-semibold flex items-center justify-center gap-2">
+              <Spinner size={20} className="animate-spin" /> Đang tải nội dung văn bản…
             </div>
-            
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-tight mb-4">
-              Nghị định quy định xử phạt vi phạm hành chính trong lĩnh vực giao thông đường bộ và đường sắt
-            </h1>
-            
-            <div className="flex flex-wrap gap-6 text-sm text-slate-500 font-medium mb-6 pb-6 border-b border-slate-100">
-              <div className="flex items-center gap-1.5"><Clock size={16} /> Ban hành: 30/12/2019</div>
-              <div className="flex items-center gap-1.5"><BookmarkSimple size={16} /> Cơ quan ban hành: Chính phủ</div>
+          ) : !detail ? (
+            <div className="bg-white rounded-3xl p-16 border border-slate-200 shadow-sm text-center">
+              <FileText size={40} className="text-slate-300 mx-auto mb-4" weight="fill" />
+              <p className="text-slate-500 font-semibold">Chọn một văn bản để xem nội dung.</p>
             </div>
-            
-            <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-              <h4 className="font-bold text-slate-800 mb-2">Tóm tắt văn bản</h4>
-              <p className="text-slate-600 leading-relaxed text-sm">
-                Nghị định này quy định về hành vi vi phạm hành chính; hình thức, mức xử phạt, biện pháp khắc phục hậu quả đối với từng hành vi vi phạm hành chính; thẩm quyền lập biên bản, thẩm quyền xử phạt, mức phạt tiền cụ thể theo từng chức danh đối với hành vi vi phạm hành chính trong lĩnh vực giao thông đường bộ và đường sắt. Nổi bật là các quy định nghiêm ngặt về nồng độ cồn.
-              </p>
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm mb-6">
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  {detail.so_hieu && (
+                    <span className="inline-flex items-center px-3 py-1 bg-red-50 text-brand text-xs font-bold rounded-lg uppercase tracking-wider border border-red-100">
+                      {detail.so_hieu}
+                    </span>
+                  )}
+                  {detail.trang_thai && (
+                    <span className="inline-flex items-center px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg uppercase tracking-wider border border-emerald-100">
+                      <ShieldCheck size={14} className="mr-1" /> {detail.trang_thai}
+                    </span>
+                  )}
+                </div>
 
-          {/* Document Body View */}
-          <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.02)] relative">
-            <div className="absolute top-0 right-10 w-20 h-32 bg-brand/5 blur-3xl rounded-full pointer-events-none"></div>
-            
-            <article className="prose prose-slate max-w-none prose-headings:font-bold prose-headings:text-slate-900 prose-p:text-slate-700 prose-p:leading-loose">
-              <h2 className="text-center text-xl border-b border-slate-200 pb-4 mb-8 uppercase tracking-wide">
-                Chương I <br />
-                <span className="text-lg text-slate-500 mt-2 block">Quy định chung</span>
-              </h2>
-              
-              <h3 className="text-lg">Điều 1. Phạm vi điều chỉnh</h3>
-              <p>
-                1. Nghị định này quy định về hành vi vi phạm hành chính; hình thức, mức xử phạt, biện pháp khắc phục hậu quả đối với từng hành vi vi phạm hành chính; thẩm quyền lập biên bản, thẩm quyền xử phạt, mức phạt tiền cụ thể theo từng chức danh đối với hành vi vi phạm hành chính trong lĩnh vực giao thông đường bộ và đường sắt.
-              </p>
-              
-              <h3 className="text-lg mt-8">Điều 2. Đối tượng áp dụng</h3>
-              <p>
-                1. Cá nhân, tổ chức có hành vi vi phạm hành chính trong lĩnh vực giao thông đường bộ, đường sắt trên lãnh thổ nước Cộng hòa xã hội chủ nghĩa Việt Nam.
-              </p>
-              <p>
-                2. Người có thẩm quyền xử phạt vi phạm hành chính.
-              </p>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-tight mb-4">
+                  {detail.ten ?? 'Văn bản pháp luật'}
+                </h1>
 
-              <hr className="my-10 border-slate-200 border-dashed" />
+                <div className="flex flex-wrap gap-6 text-sm text-slate-500 font-medium mb-6 pb-6 border-b border-slate-100">
+                  {detail.ngay_ban_hanh && <div className="flex items-center gap-1.5"><Clock size={16} /> Ban hành: {detail.ngay_ban_hanh}</div>}
+                  {detail.co_quan_ban_hanh && <div className="flex items-center gap-1.5"><BookmarkSimple size={16} /> {detail.co_quan_ban_hanh}</div>}
+                </div>
 
-              <h2 className="text-center text-xl border-b border-slate-200 pb-4 mb-8 uppercase tracking-wide">
-                Chương II <br />
-                <span className="text-lg text-slate-500 mt-2 block">Hành vi vi phạm, hình thức và mức xử phạt</span>
-              </h2>
-              
-              <h3 className="text-lg text-brand">Điều 6. Xử phạt người điều khiển xe mô tô, xe gắn máy</h3>
-              <p className="font-medium bg-brand/5 p-4 rounded-lg border-l-4 border-brand">
-                Phạt tiền từ 2.000.000 đồng đến 3.000.000 đồng đối với người điều khiển xe trên đường mà trong máu hoặc hơi thở có nồng độ cồn nhưng chưa vượt quá 50 miligam/100 mililít máu hoặc chưa vượt quá 0,25 miligam/1 lít khí thở.
-              </p>
-              
-            </article>
-          </div>
+                {detail.tom_tat && (
+                  <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
+                    <h4 className="font-bold text-slate-800 mb-2">Tóm tắt văn bản</h4>
+                    <p className="text-slate-600 leading-relaxed text-sm">{detail.tom_tat}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
+                <article className="prose prose-slate max-w-none">
+                  {detail.tree && detail.tree.length > 0 ? (
+                    detail.tree.map((k, idx) => (
+                      <div key={k.khoan_id ?? idx} className="mb-6">
+                        {(k.dieu || k.so_khoan) && (
+                          <h3 className="text-lg font-bold text-slate-900 mb-2">
+                            {k.dieu ?? ''}{k.so_khoan ? ` — Khoản ${k.so_khoan}` : ''}
+                          </h3>
+                        )}
+                        <p className="font-medium text-slate-700 leading-relaxed">{k.noi_dung}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-slate-400 italic">Nội dung chi tiết Điều/Khoản chưa được số hóa cho văn bản này.</p>
+                  )}
+                </article>
+              </div>
+            </>
+          )}
         </div>
-
-        {/* Right Sidebar: FileAttachList */}
-        <aside className="w-full md:w-1/4 shrink-0">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 sticky top-20 shadow-sm">
-            <h3 className="font-bold text-slate-900 mb-4">Tải về máy</h3>
-            <div className="space-y-3">
-              <a href="#" className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:border-brand/30 hover:bg-brand/5 transition-all group">
-                <div className="w-10 h-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center shrink-0">
-                  <FilePdf size={24} weight="fill" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-sm font-bold text-slate-800 group-hover:text-brand transition-colors">Bản gốc (PDF)</div>
-                  <div className="text-xs text-slate-500">2.4 MB</div>
-                </div>
-                <DownloadSimple size={18} className="text-slate-400 group-hover:text-brand transition-colors" />
-              </a>
-              
-              <a href="#" className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:border-blue-500/30 hover:bg-blue-50 transition-all group">
-                <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                  <FilePdf size={24} weight="fill" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">Bản Sửa đổi (PDF)</div>
-                  <div className="text-xs text-slate-500">1.1 MB</div>
-                </div>
-                <DownloadSimple size={18} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
-              </a>
-            </div>
-          </div>
-        </aside>
-
       </main>
     </div>
   );

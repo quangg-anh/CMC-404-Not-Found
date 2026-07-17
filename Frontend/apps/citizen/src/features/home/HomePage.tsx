@@ -1,5 +1,14 @@
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { MagnifyingGlass, BookOpen, Article, Scales, ArrowRight, Sparkle, Clock, ShieldCheck, LockKey, Gavel, KeyReturn } from '@phosphor-icons/react';
+import { MagnifyingGlass, BookOpen, Article, Scales, ArrowRight, Sparkle, Clock, ShieldCheck, LockKey, Gavel, KeyReturn, Spinner, FileText, PlayCircle } from '@phosphor-icons/react';
+import { apiGet } from '../../lib/api';
+
+interface HomeBrief {
+  id: string;
+  tieu_de: string;
+  media_type: string;
+  published_at?: string;
+}
 
 function Header() {
   return (
@@ -113,12 +122,22 @@ function HeroSection() {
   );
 }
 
+function briefIcon(mt: string) {
+  if (mt === 'video') return <PlayCircle size={24} className="text-blue-600" weight="fill" />;
+  if (mt === 'image') return <Gavel size={24} className="text-brand" />;
+  return <FileText size={24} className="text-emerald-600" weight="fill" />;
+}
+
 function NewsHighlight() {
-  const news = [
-    { id: 1, title: 'Hướng dẫn mới về xử phạt vi phạm giao thông nội đô áp dụng từ T7/2026', type: 'Giao thông', time: '2 giờ trước', readTime: '3 phút đọc', icon: <Gavel size={24} className="text-brand" /> },
-    { id: 2, title: 'Quy định quản lý dữ liệu cá nhân trên các nền tảng mạng xã hội xuyên biên giới', type: 'Công nghệ', time: '5 giờ trước', readTime: '5 phút đọc', icon: <LockKey size={24} className="text-blue-600" /> },
-    { id: 3, title: 'Thay đổi về mức đóng BHXH tự nguyện áp dụng cho người lao động tự do', type: 'Lao động', time: '1 ngày trước', readTime: '4 phút đọc', icon: <ShieldCheck size={24} className="text-emerald-600" /> },
-  ];
+  const [news, setNews] = useState<HomeBrief[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiGet<{ items: HomeBrief[] }>('/citizen/news')
+      .then((data) => setNews((data.items ?? []).slice(0, 3)))
+      .catch(() => setNews([]))
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div className="relative bg-slate-50">
@@ -138,42 +157,52 @@ function NewsHighlight() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {news.map((item) => (
-            <div key={item.id} className="group relative bg-white rounded-[32px] p-2 shadow-sm hover:shadow-2xl hover:shadow-slate-200/50 border border-slate-100 transition-all duration-500 hover:-translate-y-2 cursor-pointer">
-              <div className="absolute inset-0 bg-gradient-to-br from-brand/5 to-transparent opacity-0 group-hover:opacity-100 rounded-[32px] transition-opacity duration-500"></div>
-              <div className="relative h-full bg-white rounded-[24px] p-8 flex flex-col justify-between border border-transparent group-hover:border-slate-100 transition-colors z-10">
-                
-                <div>
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:scale-110 group-hover:bg-white transition-all duration-300 shadow-sm">
-                        {item.icon}
+        {loading ? (
+          <div className="py-16 text-center text-slate-400 font-semibold flex items-center justify-center gap-2">
+            <Spinner size={20} className="animate-spin" /> Đang tải tin tức…
+          </div>
+        ) : news.length === 0 ? (
+          <div className="py-16 text-center text-slate-400 font-medium bg-white rounded-[32px] border border-slate-100">
+            Chưa có bài tóm tắt nào được xuất bản.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {news.map((item) => (
+              <Link to={`/news/${item.id}`} key={item.id} className="group relative bg-white rounded-[32px] p-2 shadow-sm hover:shadow-2xl hover:shadow-slate-200/50 border border-slate-100 transition-all duration-500 hover:-translate-y-2 cursor-pointer">
+                <div className="absolute inset-0 bg-gradient-to-br from-brand/5 to-transparent opacity-0 group-hover:opacity-100 rounded-[32px] transition-opacity duration-500"></div>
+                <div className="relative h-full bg-white rounded-[24px] p-8 flex flex-col justify-between border border-transparent group-hover:border-slate-100 transition-colors z-10">
+
+                  <div>
+                    <div className="flex items-center justify-between mb-8">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:scale-110 group-hover:bg-white transition-all duration-300 shadow-sm">
+                          {briefIcon(item.media_type)}
+                        </div>
+                        <span className="text-xs font-bold text-slate-900 uppercase tracking-widest">
+                          {item.media_type === 'video' ? 'Video' : item.media_type === 'image' ? 'Infographic' : 'Bài viết'}
+                        </span>
                       </div>
-                      <span className="text-xs font-bold text-slate-900 uppercase tracking-widest">
-                        {item.type}
+                    </div>
+                    <h4 className="text-2xl font-bold text-slate-800 leading-[1.4] group-hover:text-brand transition-colors duration-300 line-clamp-4">
+                      {item.tieu_de}
+                    </h4>
+                  </div>
+
+                  <div className="mt-10 pt-6 border-t border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg">
+                        <Clock size={14} weight="bold" /> {item.published_at ? item.published_at.slice(0, 10) : 'Mới xuất bản'}
                       </span>
                     </div>
-                  </div>
-                  <h4 className="text-2xl font-bold text-slate-800 leading-[1.4] group-hover:text-brand transition-colors duration-300">
-                    {item.title}
-                  </h4>
-                </div>
-                
-                <div className="mt-10 pt-6 border-t border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-lg">
-                      <Clock size={14} weight="bold" /> {item.time}
-                    </span>
-                  </div>
-                  <div className="flex items-center text-sm font-bold text-brand opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300">
-                    Đọc tóm tắt <ArrowRight size={16} weight="bold" className="ml-1" />
+                    <div className="flex items-center text-sm font-bold text-brand opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300">
+                      Đọc tóm tắt <ArrowRight size={16} weight="bold" className="ml-1" />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
