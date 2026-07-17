@@ -13,6 +13,10 @@ router = APIRouter(tags=["Citizen QA"])
 
 class CitizenQARequest(BaseModel):
     question: str = Field(..., min_length=2, description="Câu hỏi pháp lý đời thường")
+    as_of: str | None = Field(
+        default=None,
+        description="Thời điểm áp dụng luật (YYYY-MM-DD). Mặc định: hôm nay. Dùng cho hành vi xảy ra trong quá khứ.",
+    )
 
 
 @router.post("/qa/ask", summary="Trợ lý ảo hỏi đáp pháp lý cho người dân (có trích dẫn)")
@@ -28,5 +32,6 @@ async def ask_citizen_qa(
         question=request.question,
         audience="citizen",
         graph_paths_enabled=False,
+        as_of=request.as_of,
     )
     return success_response(data=res, request_id=get_request_id())

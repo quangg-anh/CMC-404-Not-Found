@@ -1,11 +1,39 @@
 from __future__ import annotations
 
+import re
+from datetime import date
 from typing import Any
 from app.schemas import CandidateKhoan, Citation
 from app.services.citation_validator import CitationValidator
 from app.intelligence.llm_router import LLMRouter
 from app.intelligence.embedder import Embedder
+from app.intelligence.nli import NLIService
 from app.adapters.qdrant_vector import QdrantVectorClient
+
+
+# Idea 01 — Time-Travel: which candidate Khoản are INVALID as of a given date, because either
+# (a) their văn bản is not yet effective at $as_of, or (b) they have been replaced (THAY_THE) by a
+# văn bản already effective at $as_of. Uses toString() so it works whether ngay_hieu_luc is stored
+# as an ISO string or a Neo4j Date.
+_TIME_TRAVEL_INVALID_CYPHER = """
+UNWIND $ids AS kid
+MATCH (vb:VanBanPhapLuat)-[:CO_DIEU]->(:Dieu)-[:CO_KHOAN]->(k:Khoan {khoan_id: kid})
+WHERE (vb.ngay_hieu_luc IS NOT NULL AND toString(vb.ngay_hieu_luc) > $as_of)
+   OR EXISTS {
+        MATCH (moi:VanBanPhapLuat)-[:THAY_THE]->(vb)
+        WHERE moi.ngay_hieu_luc IS NOT NULL AND toString(moi.ngay_hieu_luc) <= $as_of
+   }
+RETURN collect(DISTINCT kid) AS invalid_ids
+"""
+
+# A cited văn bản whose replacement becomes effective AFTER $as_of -> surface a "this rule changed
+# later" banner that can be wired to the diff view.
+_TIME_TRAVEL_NOTICE_CYPHER = """
+UNWIND $ids AS kid
+MATCH (moi:VanBanPhapLuat)-[:THAY_THE]->(vb:VanBanPhapLuat)-[:CO_DIEU]->(:Dieu)-[:CO_KHOAN]->(k:Khoan {khoan_id: kid})
+WHERE moi.ngay_hieu_luc IS NOT NULL AND toString(moi.ngay_hieu_luc) > $as_of
+RETURN DISTINCT vb.so_hieu AS cu, moi.so_hieu AS moi, toString(moi.ngay_hieu_luc) AS tu_ngay
+"""
 
 
 class QAService:
@@ -18,6 +46,7 @@ class QAService:
         llm_router: LLMRouter | None = None,
         embedder: Embedder | None = None,
         redis_pool: Any | None = None,
+        nli: NLIService | None = None,
     ) -> None:
         self.qdrant = qdrant_client
         self.driver = neo4j_driver
@@ -25,6 +54,10 @@ class QAService:
         self.embedder = embedder
         self.redis = redis_pool
         self.validator = CitationValidator(neo4j_driver)
+        # Idea 03: reuse the same NLI engine used for social-media claim checking to verify that the
+        # AI's own answer is actually ENTAILED by its citations (not merely that the quote exists).
+        # Default is the offline heuristic NLI, so this adds no external dependency.
+        self.nli = nli or NLIService()
 
     async def retrieve_candidates(self, question: str, audience: str = "citizen") -> list[CandidateKhoan]:
         """Retrieve candidate Khoan strictly from Qdrant vector store and Neo4j graph expansion."""
@@ -68,6 +101,102 @@ class QAService:
 
         return [c for c in candidates if c.khoan_id and c.noi_dung]
 
+    async def _time_travel(
+        self, candidates: list[CandidateKhoan], as_of: str
+    ) -> tuple[list[CandidateKhoan], list[dict[str, Any]]]:
+        """Idea 01 — drop candidates not in force at `as_of` and collect 'rule changed later' notices.
+
+        Defensive: only candidates with POSITIVE evidence of being outdated (future effective date or
+        replaced by an already-effective văn bản) are removed; missing date data never excludes a
+        candidate. Any Neo4j error leaves the candidate list untouched.
+        """
+        if not (self.driver and hasattr(self.driver, "session")):
+            return candidates, []
+        ids = [c.khoan_id for c in candidates if c.khoan_id]
+        if not ids:
+            return candidates, []
+        invalid: set[str] = set()
+        notices: list[dict[str, Any]] = []
+        try:
+            async with self.driver.session() as session:
+                res = await session.run(_TIME_TRAVEL_INVALID_CYPHER, ids=ids, as_of=as_of)
+                rec = await res.single()
+                if rec and rec.get("invalid_ids"):
+                    invalid = {str(x) for x in rec["invalid_ids"]}
+                res2 = await session.run(_TIME_TRAVEL_NOTICE_CYPHER, ids=ids, as_of=as_of)
+                async for r in res2:
+                    notices.append(
+                        {
+                            "khoan_van_ban": r.get("cu"),
+                            "thay_the_boi": r.get("moi"),
+                            "tu_ngay": r.get("tu_ngay"),
+                            "message": (
+                                f"Quy định {r.get('cu')} đã/ sẽ thay đổi từ {r.get('tu_ngay')} "
+                                f"(thay bằng {r.get('moi')})."
+                            ),
+                        }
+                    )
+        except Exception:
+            return candidates, []
+        filtered = [c for c in candidates if c.khoan_id not in invalid]
+        return filtered, notices
+
+    @staticmethod
+    def _split_claims(text: str) -> list[str]:
+        """Break the answer into atomic claims (sentence-level) for entailment checking."""
+        parts = re.split(r"(?<=[.!?…])\s+|\n+", text or "")
+        return [p.strip() for p in parts if len(p.strip()) >= 8]
+
+    async def _verify_faithfulness(
+        self,
+        answer: str,
+        validated_citations: list[dict[str, Any]],
+        candidates: list[CandidateKhoan],
+    ) -> dict[str, Any]:
+        """Idea 03 — entailment check: does each claim in `answer` follow from a cited Khoản?
+
+        Returns {score, contradiction, unsupported}. `contradiction=True` means at least one claim
+        is DIRECTLY CONTRADICTED by its citation (the dangerous case where the quote is verbatim but
+        the answer says the opposite) — the caller must fail-closed on it.
+        """
+        claims = self._split_claims(answer)
+        if not claims:
+            return {"score": 1.0, "contradiction": False, "unsupported": []}
+
+        source_map = {c.khoan_id: c.noi_dung for c in candidates}
+        premises: list[str] = []
+        for cit in validated_citations:
+            kid = cit.get("khoan_id", "")
+            txt = source_map.get(kid) or await self.validator.fetch_canonical_text(kid)
+            if txt:
+                premises.append(txt)
+        if not premises:
+            return {"score": 0.0, "contradiction": False, "unsupported": claims}
+
+        supported = 0
+        contradiction = False
+        unsupported: list[str] = []
+        for claim in claims:
+            claim_supported = False
+            for premise in premises:
+                res = await self.nli.nli_pair(premise=premise, hypothesis=claim)
+                label = res.get("label")
+                # nli_pair already downgrades low-confidence contradictions to khong_ro, so any
+                # remaining "mau_thuan" is a confident contradiction.
+                if label == "mau_thuan":
+                    contradiction = True
+                    claim_supported = False
+                    break
+                if label == "khop":
+                    claim_supported = True
+            if claim_supported:
+                supported += 1
+            else:
+                unsupported.append(claim)
+
+        score = round(supported / len(claims), 3)
+        return {"score": score, "contradiction": contradiction, "unsupported": unsupported}
+
     async def _extractive_answer(
         self, candidates: list[CandidateKhoan], audience: str, reason: str
     ) -> dict[str, Any] | None:
@@ -110,18 +239,25 @@ class QAService:
         question: str,
         audience: str = "citizen",
         graph_paths_enabled: bool = False,
+        as_of: str | None = None,
     ) -> dict[str, Any]:
-        """Execute strictly real RAG QA flow: Retrieve -> LLM -> Citation Verify -> Fail-Closed output."""
+        """Execute strictly real RAG QA flow: Retrieve -> Time-Travel filter -> LLM -> Citation Verify -> Fail-Closed output."""
+        as_of_val = (as_of or date.today().isoformat()).strip()
+
         # 1. Retrieve candidates
         candidates = await self.retrieve_candidates(question, audience=audience)
+        # 1b. Idea 01 — keep only provisions in force at `as_of`; collect change notices.
+        candidates, notices = await self._time_travel(candidates, as_of_val)
         if not candidates:
             return {
-                "answer": "Không tìm thấy điều khoản pháp lý nào liên quan trong kho dữ liệu để trả lời câu hỏi của bạn.",
+                "answer": "Không tìm thấy điều khoản pháp lý nào còn hiệu lực tại thời điểm yêu cầu để trả lời câu hỏi của bạn.",
                 "citations": [],
                 "confidence": "low",
                 "graph_paths": [],
                 "audience": audience,
-                "refuse_reason": ["No legal candidates retrieved from Qdrant/Neo4j index."],
+                "as_of": as_of_val,
+                "notices": notices,
+                "refuse_reason": ["No legal candidates in force as of the requested date."],
             }
 
         # 2. Call LLM synthesized answer via BE2 router
@@ -186,7 +322,7 @@ class QAService:
         # 3. Validate citations against canonical text (Neo4j)
         is_valid, validated_citations, errors = await self.validator.validate_quotes(raw_citations, preloaded_sources=candidates)
 
-        # 4. Fail-Closed Strategy
+        # 4. Fail-Closed Strategy (exact-match citation verification)
         if not is_valid or not validated_citations:
             return {
                 "answer": "Không đủ căn cứ hoặc trích dẫn pháp lý không khớp nguyên văn để trả lời an toàn câu hỏi này.",
@@ -197,10 +333,33 @@ class QAService:
                 "refuse_reason": errors or ["All citations failed exact-match verification."],
             }
 
+        # 5. Idea 03 — entailment faithfulness: the citation must SUPPORT the answer, not just exist.
+        faith = await self._verify_faithfulness(raw_answer, validated_citations, candidates)
+        if faith["contradiction"]:
+            # Verbatim citation that contradicts the answer = subtle hallucination. Refuse.
+            return {
+                "answer": "Câu trả lời mâu thuẫn với chính căn cứ pháp lý được trích dẫn, nên đã bị hệ thống từ chối để bảo đảm an toàn.",
+                "citations": [],
+                "confidence": "low",
+                "graph_paths": [],
+                "audience": audience,
+                "citation_faithfulness": faith["score"],
+                "refuse_reason": ["Citation contradicts the answer (NLI mâu thuẫn)."],
+            }
+
+        confidence = llm_out.get("confidence", "high")
+        if faith["score"] < 0.5:
+            confidence = "low"
+        elif faith["score"] < 1.0 and confidence == "high":
+            confidence = "medium"
+
         return {
             "answer": raw_answer,
             "citations": validated_citations,
-            "confidence": llm_out.get("confidence", "high"),
+            "confidence": confidence,
             "graph_paths": raw_graph_paths if (graph_paths_enabled or audience == "admin") else [],
             "audience": audience,
+            "citation_faithfulness": faith["score"],
+            "as_of": as_of_val,
+            "notices": notices,
         }

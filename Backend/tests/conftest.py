@@ -124,6 +124,14 @@ class _FakeCursor:
         self.params = params
 
     async def single(self):
+        # Idea 01 time-travel: "15/2020/ND-CP::D1.K1" is treated as replaced by a văn bản effective
+        # 2026-07-01. It only becomes INVALID once as_of reaches the far-future test date, so the
+        # default (today) QA tests keep seeing it as valid.
+        if "invalid_ids" in self.q:
+            as_of = str(self.params.get("as_of", ""))
+            if as_of >= "2027-01-01":
+                return {"invalid_ids": ["15/2020/ND-CP::D1.K1"]}
+            return {"invalid_ids": []}
         if "match (k:khoan" in self.q and "k.noi_dung" in self.q:
             return {"noi_dung": CANONICAL_KHOAN}
         if "van_ban" in self.q or "vanbanphapluat" in self.q:
@@ -138,6 +146,23 @@ class _FakeCursor:
         return self._iter()
 
     async def _iter(self):
+        if "doi_chieu" in self.q and "clarity_risk" in self.q:
+            # Idea 02 clarity index aggregate.
+            yield {
+                "khoan_id": "168/2024/ND-CP::D6.K6",
+                "noi_dung": "Phạt tiền đối với hành vi có nồng độ cồn...",
+                "mau_thuan": 22,
+                "khong_ro": 10,
+                "volume": 47,
+                "clarity_risk": 0.681,
+            }
+            return
+        if "tu_ngay" in self.q:
+            # Time-travel notice: rule changes on 2026-07-01, so only show it for earlier as_of.
+            as_of = str(self.params.get("as_of", ""))
+            if as_of < "2026-07-01":
+                yield {"cu": "15/2020/ND-CP", "moi": "168/2024/ND-CP", "tu_ngay": "2026-07-01"}
+            return
         if "vanbanphapluat" in self.q and "return v" in self.q and "collect" not in self.q:
             yield {"v": dict(VAN_BAN)}
         elif "(t:chude)" in self.q and "return t" in self.q:
@@ -176,6 +201,14 @@ class FakeLLMClient:
                 return {
                     "answer": "Câu trả lời có trích dẫn bịa đặt.",
                     "citations": [{"khoan_id": "15/2020/ND-CP::D1.K1", "quote": "Đoạn văn bịa đặt hoàn toàn không có trong Khoản."}],
+                    "confidence": "high",
+                }
+            if "contradict" in low or "mâu thuẫn" in low:
+                # Verbatim-but-contradicting: the quote is EXACTLY canonical (passes substring check),
+                # but the answer states the opposite -> Idea 03 NLI must catch it and refuse.
+                return {
+                    "answer": "Người nộp thuế không phải kê khai đúng hạn.",
+                    "citations": [{"khoan_id": "15/2020/ND-CP::D1.K1", "quote": VALID_QUOTE}],
                     "confidence": "high",
                 }
             return {

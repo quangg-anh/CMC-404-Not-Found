@@ -94,3 +94,48 @@ async def test_rag_qa_engine_citation_validation_and_fail_closed():
         assert data_fail["confidence"] == "low"
         assert data_fail["citations"] == [] # Citations emptied due to fail-closed
         assert "Không đủ căn cứ" in data_fail["answer"]
+
+        # Case 3 (Idea 03): citation is VERBATIM (passes substring check) but the answer contradicts
+        # it -> NLI entailment must catch the subtle hallucination and refuse.
+        payload_contradict = {"question": "Trả lời contradict với căn cứ pháp lý."}
+        res_contra = await client.post("/citizen/qa/ask", json=payload_contradict)
+        assert res_contra.status_code == 200
+        data_contra = res_contra.json()["data"]
+        assert data_contra["citations"] == []
+        assert data_contra["confidence"] == "low"
+        assert "mâu thuẫn" in data_contra["answer"]
+
+
+@pytest.mark.asyncio
+async def test_time_travel_qa_effective_date_filter():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Before the rule change: answer is valid AND carries a "rule changed later" notice.
+        res_before = await client.post(
+            "/citizen/qa/ask",
+            json={"question": "Quy định về kê khai thuế đúng hạn?", "as_of": "2026-06-30"},
+        )
+        data_before = res_before.json()["data"]
+        assert data_before["as_of"] == "2026-06-30"
+        assert len(data_before["citations"]) > 0
+        assert len(data_before["notices"]) >= 1
+        assert data_before["notices"][0]["tu_ngay"] == "2026-07-01"
+
+        # Far future: the provision has been replaced and is filtered out -> refuse (no stale law).
+        res_future = await client.post(
+            "/citizen/qa/ask",
+            json={"question": "Quy định về kê khai thuế đúng hạn?", "as_of": "2030-01-01"},
+        )
+        data_future = res_future.json()["data"]
+        assert data_future["citations"] == []
+        assert "còn hiệu lực" in data_future["answer"]
+
+
+@pytest.mark.asyncio
+async def test_rag_qa_faithfulness_score_present_on_valid_answer():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        payload_valid = {"question": "Quy định về kê khai thuế đúng hạn như thế nào?"}
+        res = await client.post("/citizen/qa/ask", json=payload_valid)
+        data = res.json()["data"]
+        # Real entailment-based score replaces the old hardcoded 0.95.
+        assert "citation_faithfulness" in data
+        assert data["citation_faithfulness"] >= 0.5

@@ -15,6 +15,7 @@ class QARequest(BaseModel):
     question: str = Field(..., min_length=2, description="Câu hỏi pháp lý/nghiệp vụ")
     graph_paths_enabled: bool = Field(default=True, description="Cho phép trả về đường dẫn đồ thị quan hệ")
     audience: str = Field(default="admin", description="Đối tượng nhận câu trả lời")
+    as_of: str | None = Field(default=None, description="Thời điểm áp dụng luật (YYYY-MM-DD). Mặc định: hôm nay.")
 
 
 @router.post("/qa/ask", summary="Hỏi đáp thông minh (RAG QA) cho Admin với citation và đồ thị")
@@ -31,5 +32,6 @@ async def ask_admin_qa(
         question=request.question,
         audience="admin",
         graph_paths_enabled=request.graph_paths_enabled,
+        as_of=request.as_of,
     )
     return success_response(data=res, request_id=get_request_id())

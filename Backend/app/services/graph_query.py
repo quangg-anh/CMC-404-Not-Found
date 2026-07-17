@@ -55,3 +55,46 @@ class GraphQueryService:
             "nodes": list(nodes_map.values()),
             "edges": edges_list,
         }
+
+    async def clarity_index(self, min_volume: int = 5, limit: int = 50) -> dict[str, Any]:
+        """Idea 02 — Legal Clarity Index.
+
+        Aggregates the DOI_CHIEU edges (citizen opinions cross-checked against a Khoản) to find which
+        provisions are most often misunderstood. High ``clarity_risk`` (share of mâu_thuẫn/khong_ro)
+        combined with high volume signals a clause that may be written or communicated unclearly.
+        This is a communication signal, NOT a legal judgement that the law is wrong.
+        """
+        bounded_min = max(1, min(min_volume, 1000))
+        bounded_limit = max(1, min(limit, 200))
+        items: list[dict[str, Any]] = []
+        if self.driver and hasattr(self.driver, "session"):
+            try:
+                query = """
+                MATCH (y:YKien)-[d:DOI_CHIEU]->(k:Khoan)
+                WITH k,
+                     count(CASE WHEN d.label = 'mau_thuan' THEN 1 END) AS mau_thuan,
+                     count(CASE WHEN d.label = 'khong_ro'  THEN 1 END) AS khong_ro,
+                     count(*) AS tong
+                WHERE tong >= $min_volume
+                RETURN k.khoan_id AS khoan_id, k.noi_dung AS noi_dung,
+                       mau_thuan AS mau_thuan, khong_ro AS khong_ro, tong AS volume,
+                       toFloat(mau_thuan + khong_ro) / tong AS clarity_risk
+                ORDER BY clarity_risk * log(volume + 1) DESC
+                LIMIT $limit
+                """
+                async with self.driver.session() as session:
+                    res = await session.run(query, min_volume=bounded_min, limit=bounded_limit)
+                    async for r in res:
+                        items.append(
+                            {
+                                "khoan_id": r.get("khoan_id"),
+                                "noi_dung": r.get("noi_dung"),
+                                "mau_thuan": int(r.get("mau_thuan") or 0),
+                                "khong_ro": int(r.get("khong_ro") or 0),
+                                "volume": int(r.get("volume") or 0),
+                                "clarity_risk": round(float(r.get("clarity_risk") or 0.0), 3),
+                            }
+                        )
+            except Exception:
+                pass
+        return {"min_volume": bounded_min, "items": items, "total": len(items)}

@@ -6,6 +6,24 @@ from app.main import app
 
 
 @pytest.mark.asyncio
+async def test_clarity_index_endpoint():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Requires admin auth (router-level require_admin).
+        res_forbidden = await client.get("/admin/graph/clarity-index")
+        assert res_forbidden.status_code == 403
+
+        headers = {"Authorization": "Bearer test-admin-truyen-thong"}
+        res = await client.get("/admin/graph/clarity-index", headers=headers)
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["total"] >= 1
+        top = data["items"][0]
+        assert top["khoan_id"] == "168/2024/ND-CP::D6.K6"
+        assert 0.0 <= top["clarity_risk"] <= 1.0
+        assert top["volume"] == 47
+
+
+@pytest.mark.asyncio
 async def test_admin_social_ingest_and_link_preview():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         headers = {"Authorization": "Bearer test-admin-truyen-thong"}
