@@ -66,6 +66,11 @@ OPENAI_BASE_URL = os.getenv("BE2_OPENAI_BASE_URL", "http://localhost:11434/v1").
 OPENAI_API_KEY = os.getenv("BE2_OPENAI_API_KEY", "ollama")
 OPENAI_MODEL = os.getenv("BE2_OPENAI_MODEL", "gemma2")
 LLM_TIMEOUT = float(os.getenv("BE2_LLM_TIMEOUT_S", "60"))
+# Anti-loop generation controls. Small local models (e.g. 4B Qwen distills) tend to repeat
+# themselves; a repeat penalty + a hard token cap keeps the chat answer from looping forever.
+LLM_TEMPERATURE = float(os.getenv("BE2_LLM_TEMPERATURE", "0.2"))
+LLM_MAX_TOKENS = int(os.getenv("BE2_LLM_MAX_TOKENS", "512"))
+LLM_REPEAT_PENALTY = float(os.getenv("BE2_LLM_REPEAT_PENALTY", "1.3"))
 
 _SYSTEM_PROMPT = (
     "Bạn là trợ lý pháp lý tiếng Việt. CHỈ được dựa vào các điều khoản pháp luật được cung cấp "
@@ -119,7 +124,13 @@ async def _ollama_chat(system: str, user: str) -> str | None:
                     ],
                     "stream": False,
                     "keep_alive": OLLAMA_KEEP_ALIVE,
-                    "options": {"temperature": 0.2},
+                    "options": {
+                        "temperature": LLM_TEMPERATURE,
+                        "num_predict": LLM_MAX_TOKENS,
+                        "repeat_penalty": LLM_REPEAT_PENALTY,
+                        # Penalise repeats over a wide window so it can't loop a whole sentence.
+                        "repeat_last_n": 256,
+                    },
                 },
             )
             resp.raise_for_status()
@@ -146,7 +157,10 @@ async def _openai_chat(system: str, user: str) -> str | None:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    "temperature": 0.2,
+                    "temperature": LLM_TEMPERATURE,
+                    "max_tokens": LLM_MAX_TOKENS,
+                    "frequency_penalty": 0.6,
+                    "presence_penalty": 0.3,
                     "stream": False,
                 },
             )
@@ -164,14 +178,45 @@ async def _openai_chat(system: str, user: str) -> str | None:
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
+def _dedupe_repeats(text: str) -> str:
+    """Collapse consecutive repeated lines/sentences a looping model may emit.
+
+    Safety net on top of the model-side repeat penalties: if the model still gets stuck
+    repeating the same sentence (a classic small-model failure), we keep only the first copy
+    so the chat answer never shows an endless loop of duplicated text.
+    """
+    # 1) Drop consecutive duplicate lines.
+    lines: list[str] = []
+    for raw in text.splitlines():
+        if lines and raw.strip() and raw.strip() == lines[-1].strip():
+            continue
+        lines.append(raw)
+    text = "\n".join(lines)
+
+    # 2) Drop consecutive duplicate sentences within a paragraph.
+    parts = re.split(r"(?<=[.!?…])\s+", text)
+    out: list[str] = []
+    for p in parts:
+        norm = p.strip().lower()
+        if norm and out and norm == out[-1].strip().lower():
+            continue
+        out.append(p)
+    deduped = " ".join(s for s in out if s.strip())
+
+    # 3) Guard against a phrase repeated many times back-to-back (>=3x) anywhere.
+    deduped = re.sub(r"(.{8,}?)(?:\s*\1){2,}", r"\1", deduped)
+    return deduped.strip()
+
+
 def _clean_llm_text(text: str | None) -> str | None:
-    """Strip reasoning scaffolding some local models emit (e.g. Qwen ``<think>…</think>``)."""
+    """Strip reasoning scaffolding some local models emit (e.g. Qwen ``<think>…</think>``)
+    and collapse any repeated/looping text."""
     if not text:
         return None
     cleaned = _THINK_BLOCK.sub("", text)
     # Drop an unclosed leading <think> tail if the model was cut off mid-reasoning.
     cleaned = re.sub(r"<think>.*$", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
-    cleaned = cleaned.strip()
+    cleaned = _dedupe_repeats(cleaned.strip())
     return cleaned or None
 
 

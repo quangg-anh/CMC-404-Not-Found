@@ -63,10 +63,25 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# CORS configuration
+# CORS configuration.
+# Admin dev server runs on :5173 and the Citizen dev server on :5174 (see Frontend/apps/*/vite.config.ts).
+# Both localhost and 127.0.0.1 origins are allowed because the browser treats them as distinct.
+# Extra origins can be appended via the CORS_EXTRA_ORIGINS env var (comma-separated).
+_cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+_extra = os.getenv("CORS_EXTRA_ORIGINS", "")
+if _extra.strip():
+    _cors_origins.extend(o.strip() for o in _extra.split(",") if o.strip())
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
