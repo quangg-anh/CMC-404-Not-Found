@@ -166,65 +166,70 @@ legal_document ──amends──→      legal_document (old)
 
 ---
 
-## 3. LangGraph Workflows (3 mới)
+## 3. LangGraph Workflows — Kiến trúc LightRAG-inspired
 
-### 3.1 LegalParserGraph (`open_notebook/graphs/legal_parser.py`)
+Dựa trên nguyên lý của **LightRAG** (trích xuất Entity/Relationship + Hybrid Search), chúng ta chia hệ thống thành 2 luồng chính: Insert Pipeline và Query Pipeline, chạy async qua worker để đảm bảo scale và latency.
+
+### 3.1 Insert Pipeline: LegalParserGraph (`open_notebook/graphs/legal_parser.py`)
+
+Đây là quá trình nạp tri thức (Knowledge Ingestion) chạy ngầm qua `surreal-commands` worker.
 
 ```
-Input: Raw legal text (PDF/paste)
+Input: Raw legal text (PDF/DOCX/text)
   ↓
-Step 1: Structure Parser
-  → LLM chặt nhỏ thành Điều → Khoản → Điểm (JSON output)
+Step 1: Chunking (Token-based)
+  → Cắt văn bản thành Điều → Khoản → Điểm, chia nhỏ theo token (có overlap).
   ↓
-Step 2: NER Extractor
-  → Với mỗi đơn vị, LLM gắn nhãn entities
-  → (subject, obligation, right, prohibition, deadline, penalty, related_doc)
+Step 2: Entity & Relationship Extraction (LightRAG logic)
+  → LLM trích xuất các Entities (Chủ thể, Nghĩa vụ, Quyền, Thời hạn, Mức phạt).
+  → Tạo Relationships (Điều X -> xử phạt -> Hành vi Y).
   ↓
-Step 3: Amendment Detector
-  → So sánh với docs cũ trong DB, phát hiện thay đổi
+Step 3: Graph Merge & Embedding
+  → Hợp nhất các Node/Edge trùng lặp (Merge nodes and edges).
+  → Tạo Vector embeddings cho CẢ Chunks, Entities và Relationships.
   ↓
-Step 4: Embed & Save
-  → Tạo embeddings cho từng chunk
-  → Lưu tất cả vào SurrealDB
+Step 4: Storage
+  → Lưu vào SurrealDB (vừa làm VectorDB vừa làm GraphDB).
   ↓
-Output: Structured legal data + graph edges
+Output: Structured Legal Knowledge Graph
 ```
 
-### 3.2 SocialLinkerGraph (`open_notebook/graphs/social_linker.py`)
+### 3.2 Query Pipeline 1: SocialLinkerGraph (`open_notebook/graphs/social_linker.py`)
+
+Xử lý luồng nạp bài viết MXH và liên kết với Graph luật.
 
 ```
 Input: Social post content
   ↓
-Step 1: Claim Extractor
-  → LLM bóc tách các luận điểm/tuyên bố pháp lý
+Step 1: Keyword/Claim Extraction
+  → Dùng LLM trích xuất keywords và claim (luận điểm) từ post.
   ↓
-Step 2: Legal Matcher
-  → Vector search + keyword match tìm Điều/Khoản liên quan
-  → Tạo edges (discusses) trong SurrealDB
+Step 2: Hybrid Retrieval (Vector + Graph)
+  → Truy xuất kết hợp: Semantic Vector Search trên vector DB + Graph Traversal (tìm Node lân cận) trên SurrealDB.
   ↓
-Step 3: Sentiment Analyzer
-  → Phân loại cảm xúc/thái độ
+Step 3: Graph Linking
+  → Tạo Edge (discusses/related_to) từ Post/Claim tới Legal Article/Entity.
   ↓
-Output: Claims + graph links + sentiment
+Output: Connected Social Post in Graph
 ```
 
-### 3.3 MisinfoDetectorGraph (`open_notebook/graphs/misinfo_detector.py`)
+### 3.3 Query Pipeline 2: MisinfoDetectorGraph (`open_notebook/graphs/misinfo_detector.py`)
+
+Xử lý luồng Fact-checking & Q&A.
 
 ```
-Input: social_claim record
+Input: social_claim hoặc user query
   ↓
-Step 1: Retrieve Legal Facts
-  → Lấy nội dung Điều/Khoản đã liên kết
+Step 1: Query Routing & Context Building
+  → Routing: Chọn mode truy xuất (Local entity, Global relation, hoặc Hybrid).
+  → Lấy context: Tổng hợp Subgraph + Text chunks.
   ↓
-Step 2: Cross-Reference Check
-  → LLM đối chiếu claim vs. legal facts
-  → Output: accurate | misleading | false
+Step 2: Citation-First Context
+  → Sắp xếp context ưu tiên nguồn rõ ràng (Điều mấy, luật nào).
   ↓
-Step 3: Generate Correction
-  → Nếu sai: sinh lời giải thích đính chính
-  → Kèm trích dẫn nguồn (Điều X, Khoản Y)
-  ↓
-Output: MisinfoResult (flag + explanation + correction + citations)
+Step 3: Cross-Reference & LLM Answer
+  → LLM đối chiếu claim với context.
+  → Output: Accurate/Misleading/False + Lời giải thích (kèm citation).
 ```
 
 ---
