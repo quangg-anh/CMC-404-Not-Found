@@ -3,19 +3,16 @@ from __future__ import annotations
 from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-<<<<<<< HEAD
-from app.api.deps import get_db_pool, get_neo4j_driver, get_qdrant_client, get_embedder, get_llm_router, require_admin, UserToken
-=======
 from app.api.deps import (
     get_db_pool,
     get_neo4j_driver,
     get_qdrant_client,
     get_embedder,
+    get_llm_router,
     get_minio,
     require_admin,
     UserToken,
 )
->>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
 from app.core.envelope import success_response
 from app.core.logging import get_request_id
 from app.services.diff_facade import LegalDiffFacade
@@ -95,17 +92,18 @@ async def ingest_legal(
     driver: Any = Depends(get_neo4j_driver),
     qdrant: Any = Depends(get_qdrant_client),
     embedder: Any = Depends(get_embedder),
-<<<<<<< HEAD
     llm_router: Any = Depends(get_llm_router),
-    user: UserToken = Depends(require_admin()),
-) -> dict[str, Any]:
-    facade = LegalDiffFacade(pool=pool, neo4j_driver=driver, qdrant=qdrant, embedder=embedder, llm_router=llm_router)
-=======
     minio: Any = Depends(get_minio),
     user: UserToken = Depends(require_admin()),
 ) -> dict[str, Any]:
-    facade = LegalDiffFacade(pool=pool, neo4j_driver=driver, qdrant=qdrant, embedder=embedder, minio=minio)
->>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
+    facade = LegalDiffFacade(
+        pool=pool,
+        neo4j_driver=driver,
+        qdrant=qdrant,
+        embedder=embedder,
+        llm_router=llm_router,
+        minio=minio,
+    )
     res = await facade.ingest_document(request.model_dump())
     return success_response(data=res, request_id=get_request_id())
 

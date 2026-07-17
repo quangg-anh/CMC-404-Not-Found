@@ -40,21 +40,15 @@ class LegalDiffFacade:
         neo4j_driver: Any | None = None,
         qdrant: Any | None = None,
         embedder: Any | None = None,
-<<<<<<< HEAD
         llm_router: Any | None = None,
-=======
         minio: Any | None = None,
->>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
     ) -> None:
         self.pool = pool
         self.driver = neo4j_driver
         self.qdrant = qdrant
         self.embedder = embedder
-<<<<<<< HEAD
         self.llm_router = llm_router
-=======
         self.minio = minio
->>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
         self.differ = VersionDiff()
 
     async def store_upload(
@@ -143,23 +137,15 @@ class LegalDiffFacade:
                     "message": "Đã đưa vào hàng đợi Arq để worker xử lý bất đồng bộ.",
                 }
 
-<<<<<<< HEAD
         # Synchronous path (A): parse + write to Neo4j + index vectors + NER now.
-        result = await run_legal_ingest(
-            self.driver, payload,
-            qdrant=self.qdrant,
-            embedder=self.embedder,
-            llm_router=self.llm_router,
-=======
-        # Synchronous path (A): parse + write to Neo4j + index vectors now.
         result = await run_legal_ingest(
             self.driver,
             payload,
             qdrant=self.qdrant,
             embedder=self.embedder,
+            llm_router=self.llm_router,
             pool=self.pool,
             minio=self.minio,
->>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
         )
         await self._update_job_status(job_id, result["status"], result.get("message"))
         return {

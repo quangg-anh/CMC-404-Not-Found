@@ -275,23 +275,17 @@ async def run_legal_ingest(
     payload: dict[str, Any],
     qdrant: Any = None,
     embedder: Any = None,
-<<<<<<< HEAD
     llm_router: Any = None,
-=======
     pool: Any = None,
     minio: Any = None,
->>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
 ) -> dict[str, Any]:
     """Parse the document text, upsert its Điều/Khoản into Neo4j, index Khoản into Qdrant, and run NER.
 
-<<<<<<< HEAD
-    Returns a status dict: {status, vb_id, dieu_count, khoan_count, indexed_count, ner_count, needs_review, message}.
-=======
     Text is resolved in priority order: pasted content/URL first, then any uploaded files
     (``file_ids``) read back from MinIO and text-extracted.
 
-    Returns a status dict: {status, vb_id, dieu_count, khoan_count, indexed_count, needs_review, message}.
->>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
+    Returns a status dict:
+    {status, vb_id, dieu_count, khoan_count, indexed_count, ner_count, needs_review, message}.
     - status="success" when at least one Điều was written,
     - status="needs_review" when text was present but no structure could be parsed,
     - status="queued" when no content was supplied (awaiting file upload / async fetch).
