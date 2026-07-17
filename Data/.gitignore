@@ -1,7 +1,8 @@
-# Khong commit noi dung backup / dump / snapshot (giu thu muc qua .gitkeep)
-backups/**/*
-!backups/**/.gitkeep
-
-# File dump tam
-*.dump
-*.snapshot
+# Khong commit ARTIFACT backup (dump/snapshot/sql), nhung VAN giu script + .gitkeep
+backups/**/*.sql
+backups/**/*.dump
+backups/**/*.snapshot
+backups/**/*.checksum
+backups/**/*.tar
+backups/**/*.gz
+backups/qdrant/tmp/

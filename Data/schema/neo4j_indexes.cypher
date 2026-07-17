@@ -42,3 +42,23 @@ CREATE INDEX baidang_thoi_gian IF NOT EXISTS
 // Tim kiem toan van tren noi dung Khoan (ho tro hybrid retrieve)
 CREATE FULLTEXT INDEX khoan_noidung_ft IF NOT EXISTS
   FOR (k:Khoan) ON EACH [k.noi_dung];
+
+// =========================================================
+// Phase B - MXH (Social)
+// =========================================================
+
+// Tra cuu YKien theo bai dang goc (lay claim cua 1 BaiDang)
+CREATE INDEX ykien_baidang IF NOT EXISTS
+  FOR (y:YKien) ON (y.bai_dang_id);
+
+// Loc bai dang theo nen tang (dashboard MXH)
+CREATE INDEX baidang_platform IF NOT EXISTS
+  FOR (b:BaiDang) ON (b.platform);
+
+// Fulltext noi dung bai dang (ho tro phan cum chu de / tim kiem MXH)
+CREATE FULLTEXT INDEX baidang_noidung_ft IF NOT EXISTS
+  FOR (b:BaiDang) ON EACH [b.noi_dung];
+
+// Fulltext ten chu de
+CREATE FULLTEXT INDEX chude_ten_ft IF NOT EXISTS
+  FOR (c:ChuDe) ON EACH [c.ten];

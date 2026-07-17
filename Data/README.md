@@ -118,11 +118,16 @@ Data/
 | MinIO | versioning bucket (đã bật) | ✅ online |
 | Neo4j | **Community cần DB offline** (xem dưới) | ⚠️ offline |
 
-Neo4j Community — dump phải dừng DB trước:
+Neo4j Community — dump phải dừng DB trước (`neo4j-admin database backup` online chỉ có ở Enterprise).
+
+**Script tự động** (backup cả 3 kho + restore Neo4j, tự stop/start Neo4j an toàn):
 ```bash
-docker compose -f Data/docker-compose.data.yml stop neo4j
-docker compose -f Data/docker-compose.data.yml run --rm --entrypoint neo4j-admin neo4j \
-  database dump neo4j --to-path=/backups
-docker compose -f Data/docker-compose.data.yml start neo4j
+# Backup: Postgres pg_dump + Qdrant snapshots + Neo4j dump
+bash Data/backups/backup_all.sh
+powershell -File Data/backups/backup_all.ps1        # Windows
+
+# Restore Neo4j từ dump gần nhất (ghi đè DB hiện tại)
+bash Data/backups/restore_all.sh
+powershell -File Data/backups/restore_all.ps1       # Windows
 ```
-(`neo4j-admin database backup` online chỉ có ở Enterprise.)
+Đã test backup + restore thành công (marker node revert đúng, seed nguyên vẹn).
