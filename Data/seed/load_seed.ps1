@@ -19,7 +19,10 @@ Get-Content "$ROOT/schema/neo4j_constraints.cypher" -Raw | docker exec -i legal_
 Get-Content "$ROOT/schema/neo4j_indexes.cypher" -Raw | docker exec -i legal_neo4j cypher-shell -u neo4j -p $NEO4J_PW
 
 Write-Host "[2/4] Neo4j: load van ban mau"
-Get-Content "$DIR/van_ban_mau/nghi_dinh_mau.cypher" -Raw | docker exec -i legal_neo4j cypher-shell -u neo4j -p $NEO4J_PW
+Get-ChildItem "$DIR/van_ban_mau/*.cypher" | ForEach-Object {
+  Write-Host "  - $($_.Name)"
+  Get-Content $_.FullName -Raw | docker exec -i legal_neo4j cypher-shell -u neo4j -p $NEO4J_PW
+}
 
 Write-Host "[3/4] Postgres: seed users + lineage"
 Get-Content "$DIR/users_seed.sql" -Raw | docker exec -i legal_postgres psql -U $PG_USER -d $PG_DB

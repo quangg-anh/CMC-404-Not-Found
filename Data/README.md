@@ -79,16 +79,31 @@ Data/
       001_init.sql            # users, RBAC enums, system_config
       002_jobs_lineage.sql    # jobs, job_events, lineage, van_ban_files
       003_content_publish.sql # briefs, suggestions, alerts, audit_log
+      004_retention_audit.sql # archived_at, v_publish_audit, read-only roles
     qdrant/
       collections.json        # spec khoan/baidang/chude (dim 1024)
       extract_khoan.schema.json # JSON Schema output NER BE1
   seed/
-    van_ban_mau/nghi_dinh_mau.cypher
+    van_ban_mau/nghi_dinh_mau.cypher, nghi_dinh_02_mau.cypher
     social_mau/baidang_mau.json
     users_seed.sql
     load_seed.sh / load_seed.ps1
-  backups/{neo4j,postgres,qdrant}/
+  gold/
+    citations.json            # >=20 Q-A, quote = substring nguyen van Khoan
+    links.json                # >=20 bai -> expected_khoan_ids (precision@k)
+    nli.json                  # >=20 claim-Khoan, 3 nhan khop/mau_thuan/khong_ro
+    generate_gold.ps1         # sinh lai gold tu Neo4j (quote luon substring)
+  backups/
+    backup_all.sh/.ps1 · restore_all.sh/.ps1
+    {neo4j,postgres,qdrant}/
 ```
+
+### Gold sets (đánh giá QA/link/NLI)
+Sinh lại từ dữ liệu seed trong Neo4j (quote đảm bảo là substring nguyên văn Khoản):
+```bash
+powershell -File Data/gold/generate_gold.ps1
+```
+Format khớp `Backend/scripts/eval_be2_gold.py`: `links.json`→`expected_khoan_ids`, `nli.json`→`premise`/`hypothesis`/`label`.
 
 ---
 

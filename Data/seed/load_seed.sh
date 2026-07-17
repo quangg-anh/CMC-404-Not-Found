@@ -20,7 +20,10 @@ docker exec -i legal_neo4j cypher-shell -u neo4j -p "$NEO4J_PW" < "$ROOT/schema/
 docker exec -i legal_neo4j cypher-shell -u neo4j -p "$NEO4J_PW" < "$ROOT/schema/neo4j_indexes.cypher"
 
 echo "[2/4] Neo4j: load van ban mau"
-docker exec -i legal_neo4j cypher-shell -u neo4j -p "$NEO4J_PW" < "$DIR/van_ban_mau/nghi_dinh_mau.cypher"
+for f in "$DIR"/van_ban_mau/*.cypher; do
+  echo "  - $(basename "$f")"
+  docker exec -i legal_neo4j cypher-shell -u neo4j -p "$NEO4J_PW" < "$f"
+done
 
 echo "[3/4] Postgres: seed users + lineage"
 docker exec -i legal_postgres psql -U "$PG_USER" -d "$PG_DB" < "$DIR/users_seed.sql"

@@ -1,0 +1,142 @@
+[
+    {
+        "id":  "nli-1",
+        "khoan_id":  "ND-01-2024::D1.K1",
+        "premise":  "Nghi dinh nay quy dinh ve hanh vi vi pham hanh chinh, hinh thuc xu phat va muc phat trong linh vuc mau.",
+        "hypothesis":  "dinh nay quy dinh ve hanh vi vi pham hanh chinh, hinh thuc xu phat va muc phat trong linh vuc",
+        "label":  "khop"
+    },
+    {
+        "id":  "nli-2",
+        "khoan_id":  "ND-01-2024::D1.K2",
+        "premise":  "Doi tuong ap dung bao gom to chuc, ca nhan co hanh vi vi pham hanh chinh quy dinh tai Nghi dinh nay.",
+        "hypothesis":  "Khong dung rang tuong ap dung bao gom to chuc, ca nhan co hanh vi vi pham hanh chinh quy dinh tai Nghi dinh.",
+        "label":  "mau_thuan"
+    },
+    {
+        "id":  "nli-3",
+        "khoan_id":  "ND-01-2024::D2.K1",
+        "premise":  "Phat tien tu 1.000.000 dong den 3.000.000 dong doi voi mot trong cac hanh vi sau day:",
+        "hypothesis":  "Van de nay chua duoc quy dinh ro rang.",
+        "label":  "khong_ro"
+    },
+    {
+        "id":  "nli-4",
+        "khoan_id":  "ND-01-2024::D2.K2",
+        "premise":  "Thoi han thuc hien bien phap khac phuc hau qua la 30 ngay ke tu ngay nhan duoc quyet dinh.",
+        "hypothesis":  "han thuc hien bien phap khac phuc hau qua la 30 ngay ke tu ngay nhan duoc quyet",
+        "label":  "khop"
+    },
+    {
+        "id":  "nli-5",
+        "khoan_id":  "ND-02-2024::D1.K1",
+        "premise":  "To chuc, ca nhan phai bao dam an toan thong tin trong qua trinh thu thap du lieu.",
+        "hypothesis":  "Khong dung rang chuc, ca nhan phai bao dam an toan thong tin trong qua trinh thu thap du.",
+        "label":  "mau_thuan"
+    },
+    {
+        "id":  "nli-6",
+        "khoan_id":  "ND-02-2024::D1.K2",
+        "premise":  "Viec xu ly du lieu ca nhan phai duoc su dong y cua chu the du lieu.",
+        "hypothesis":  "Van de nay chua duoc quy dinh ro rang.",
+        "label":  "khong_ro"
+    },
+    {
+        "id":  "nli-7",
+        "khoan_id":  "ND-02-2024::D1.K3",
+        "premise":  "Nghiem cam mua ban du lieu ca nhan trai phep duoi moi hinh thuc.",
+        "hypothesis":  "cam mua ban du lieu ca nhan trai phep duoi moi hinh",
+        "label":  "khop"
+    },
+    {
+        "id":  "nli-8",
+        "khoan_id":  "ND-02-2024::D1.K4",
+        "premise":  "Du lieu phai duoc thu thap dung muc dich da thong bao cho chu the du lieu.",
+        "hypothesis":  "Khong dung rang lieu phai duoc thu thap dung muc dich da thong bao cho chu the du.",
+        "label":  "mau_thuan"
+    },
+    {
+        "id":  "nli-9",
+        "khoan_id":  "ND-02-2024::D2.K1",
+        "premise":  "To chuc phai chi dinh nguoi phu trach bao ve du lieu ca nhan.",
+        "hypothesis":  "Van de nay chua duoc quy dinh ro rang.",
+        "label":  "khong_ro"
+    },
+    {
+        "id":  "nli-10",
+        "khoan_id":  "ND-02-2024::D2.K2",
+        "premise":  "To chuc phai thong bao cho co quan quan ly khi xay ra su co lo lot du lieu.",
+        "hypothesis":  "chuc phai thong bao cho co quan quan ly khi xay ra su co lo lot du",
+        "label":  "khop"
+    },
+    {
+        "id":  "nli-11",
+        "khoan_id":  "ND-02-2024::D2.K3",
+        "premise":  "To chuc phai xay dung quy trinh noi bo ve bao ve du lieu ca nhan.",
+        "hypothesis":  "Khong dung rang chuc phai xay dung quy trinh noi bo ve bao ve du lieu ca.",
+        "label":  "mau_thuan"
+    },
+    {
+        "id":  "nli-12",
+        "khoan_id":  "ND-02-2024::D2.K4",
+        "premise":  "To chuc phai dinh ky danh gia rui ro doi voi hoat dong xu ly du lieu.",
+        "hypothesis":  "Van de nay chua duoc quy dinh ro rang.",
+        "label":  "khong_ro"
+    },
+    {
+        "id":  "nli-13",
+        "khoan_id":  "ND-02-2024::D3.K1",
+        "premise":  "Thoi han luu tru du lieu ca nhan khong qua nam nam ke tu ngay thu thap.",
+        "hypothesis":  "han luu tru du lieu ca nhan khong qua nam nam ke tu ngay thu",
+        "label":  "khop"
+    },
+    {
+        "id":  "nli-14",
+        "khoan_id":  "ND-02-2024::D3.K2",
+        "premise":  "Sau khi het thoi han luu tru, du lieu phai duoc xoa hoac an danh.",
+        "hypothesis":  "Khong dung rang khi het thoi han luu tru, du lieu phai duoc xoa hoac an.",
+        "label":  "mau_thuan"
+    },
+    {
+        "id":  "nli-15",
+        "khoan_id":  "ND-02-2024::D3.K3",
+        "premise":  "Chu the du lieu co quyen yeu cau xoa du lieu ca nhan cua minh.",
+        "hypothesis":  "Van de nay chua duoc quy dinh ro rang.",
+        "label":  "khong_ro"
+    },
+    {
+        "id":  "nli-16",
+        "khoan_id":  "ND-02-2024::D3.K4",
+        "premise":  "To chuc phai phan hoi yeu cau cua chu the du lieu trong thoi han ba muoi ngay.",
+        "hypothesis":  "chuc phai phan hoi yeu cau cua chu the du lieu trong thoi han ba muoi",
+        "label":  "khop"
+    },
+    {
+        "id":  "nli-17",
+        "khoan_id":  "ND-02-2024::D4.K1",
+        "premise":  "Phat tien tu 20.000.000 dong den 50.000.000 dong doi voi hanh vi lam lo lot du lieu.",
+        "hypothesis":  "Khong dung rang tien tu 20.000.000 dong den 50.000.000 dong doi voi hanh vi lam lo lot du.",
+        "label":  "mau_thuan"
+    },
+    {
+        "id":  "nli-18",
+        "khoan_id":  "ND-02-2024::D4.K2",
+        "premise":  "Truong hop tai pham thi muc phat duoc tang len gap hai lan.",
+        "hypothesis":  "Van de nay chua duoc quy dinh ro rang.",
+        "label":  "khong_ro"
+    },
+    {
+        "id":  "nli-19",
+        "khoan_id":  "ND-02-2024::D4.K3",
+        "premise":  "Ngoai phat tien, to chuc vi pham buoc phai khac phuc hau qua da gay ra.",
+        "hypothesis":  "phat tien, to chuc vi pham buoc phai khac phuc hau qua da gay",
+        "label":  "khop"
+    },
+    {
+        "id":  "nli-20",
+        "khoan_id":  "ND-02-2024::D4.K4",
+        "premise":  "Ca nhan vi pham co the bi cam dam nhiem cong viec xu ly du lieu trong hai nam.",
+        "hypothesis":  "Khong dung rang nhan vi pham co the bi cam dam nhiem cong viec xu ly du lieu trong hai.",
+        "label":  "mau_thuan"
+    }
+]
