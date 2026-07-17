@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, BookOpen, Clock, ShieldCheck, TreeStructure, BookmarkSimple, Spinner, FileText, DownloadSimple, FilePdf } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
-import { apiGet } from '../../lib/api';
+import { apiGet, fileUrl } from '../../lib/api';
 
 interface Khoan {
   khoan_id?: string;
@@ -203,7 +203,7 @@ export default function VanBanPage() {
                           </div>
                         </div>
                         <a 
-                          href={`http://localhost:8000/citizen/legal/download/${f.file_id}`} 
+                          href={fileUrl(f.file_id)} 
                           target="_blank" rel="noopener noreferrer"
                           className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-300 text-slate-600 hover:text-brand hover:border-brand shadow-sm transition-all"
                           title="Tải xuống"

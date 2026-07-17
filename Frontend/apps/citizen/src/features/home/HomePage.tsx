@@ -34,9 +34,9 @@ function Header() {
             <BookOpen size={18} /> Văn bản
           </Link>
           <div className="w-px h-6 bg-slate-200 mx-2"></div>
-          <Link to="/login" className="px-6 py-2 rounded-full text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5">
-            Đăng nhập
-          </Link>
+          <a href="/admin/" className="px-6 py-2 rounded-full text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5">
+            Cổng cán bộ
+          </a>
         </nav>
       </div>
     </header>

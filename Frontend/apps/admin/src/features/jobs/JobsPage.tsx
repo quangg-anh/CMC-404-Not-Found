@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PlayCircle, CheckCircle, XCircle, Clock, Spinner, ArrowsClockwise, HardDrives, StopCircle } from '@phosphor-icons/react';
+import { PlayCircle, CheckCircle, XCircle, Clock, Spinner, ArrowsClockwise, HardDrives, StopCircle, WarningCircle } from '@phosphor-icons/react';
 import { apiGet } from '../../lib/api';
 
 interface Job {
@@ -200,9 +200,4 @@ export default function JobsPage() {
       )}
     </div>
   );
-}
-
-// Phosphor Icon WarningCircle missing import above, fixing:
-function WarningCircle(props: any) {
-  return <PlayCircle {...props} />; // Fallback since it wasn't imported
 }

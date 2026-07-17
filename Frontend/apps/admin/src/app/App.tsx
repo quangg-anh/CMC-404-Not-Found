@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { ShieldCheck, SquaresFour, Bell, ListMagnifyingGlass, FileText, ShareNetwork, HardDrives, Article, ListChecks } from '@phosphor-icons/react';
+import { ShieldCheck, SquaresFour, Bell, ListMagnifyingGlass, FileText, ShareNetwork, HardDrives, Article, ListChecks, Broadcast, PenNib } from '@phosphor-icons/react';
 import DashboardPage from '../features/dashboard/Dashboard';
 import AlertsPage from '../features/alerts/Alerts';
 import QAAdminPage from '../features/qa/QAAdmin';
@@ -9,6 +9,8 @@ import DiffPage from '../features/diff/DiffPage';
 import GraphPage from '../features/graph/GraphPage';
 import JobsPage from '../features/jobs/JobsPage';
 import BriefsPage from '../features/briefs/BriefsPage';
+import SuggestionsPage from '../features/suggestions/SuggestionsPage';
+import SocialPage from '../features/social/SocialPage';
 import ReviewPage from '../features/review/ReviewPage';
 import KhoanPage from '../features/khoan/KhoanPage';
 import LoginPage from '../features/auth/Login';
@@ -47,6 +49,10 @@ function Sidebar() {
           <div className={iconWrapperClass('/alerts')}><Bell size={16} weight="fill" /></div>
           Cảnh báo rủi ro
         </Link>
+        <Link to="/social" className={navItemClass('/social')}>
+          <div className={iconWrapperClass('/social')}><Broadcast size={16} weight="fill" /></div>
+          Radar Mạng xã hội
+        </Link>
         <Link to="/qa" className={navItemClass('/qa')}>
           <div className={iconWrapperClass('/qa')}><ListMagnifyingGlass size={16} weight="fill" /></div>
           Hỏi đáp Pháp lý
@@ -57,7 +63,11 @@ function Sidebar() {
         </Link>
         <Link to="/briefs" className={navItemClass('/briefs')}>
           <div className={iconWrapperClass('/briefs')}><Article size={16} weight="fill" /></div>
-          Bản tin & Đề xuất
+          Bản tin (Briefs)
+        </Link>
+        <Link to="/suggestions" className={navItemClass('/suggestions')}>
+          <div className={iconWrapperClass('/suggestions')}><PenNib size={16} weight="fill" /></div>
+          Đề xuất đính chính
         </Link>
         
         <div className="pt-6 pb-2">
@@ -92,9 +102,11 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/social" element={<SocialPage />} />
           <Route path="/qa" element={<QAAdminPage />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/briefs" element={<BriefsPage />} />
+          <Route path="/suggestions" element={<SuggestionsPage />} />
           <Route path="/van-ban" element={<IngestPage />} />
           <Route path="/khoan/:id" element={<KhoanPage />} />
           <Route path="/diff" element={<DiffPage />} />

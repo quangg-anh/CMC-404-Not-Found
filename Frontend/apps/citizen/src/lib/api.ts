@@ -1,7 +1,12 @@
 // Thin API client for the Citizen portal. Talks to the BE3 gateway envelope format:
 //   success => { ok: true, data: <T>, meta: {...} }
 //   error   => { ok: false, data: { message, code, details }, meta: {...} }
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
+export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
+
+// Absolute URL for a public raw legal file (browser navigates/downloads directly).
+export function fileUrl(fileId: string): string {
+  return `${API_BASE}/citizen/legal/files/${encodeURIComponent(fileId)}`;
+}
 
 export interface ApiEnvelope<T> {
   ok: boolean;
