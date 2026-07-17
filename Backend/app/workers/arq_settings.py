@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 
+from arq import cron
 from arq.connections import RedisSettings
 
 from app.config import BE2Config, get_config
 from app.workers.content_jobs import brief_generate, suggest_generate
 from app.workers.legal_jobs import legal_ingest, legal_extract
-from app.workers.social_jobs import alert_fanout, social_claim, social_ingest, social_link, social_topic
+from app.workers.social_jobs import alert_fanout, daily_social_monitor, social_claim, social_ingest, social_link, social_topic
 
 BE2_WORKER_FUNCTIONS = [
     social_ingest,
@@ -15,6 +16,7 @@ BE2_WORKER_FUNCTIONS = [
     social_link,
     social_claim,
     alert_fanout,
+    daily_social_monitor,
     brief_generate,
     suggest_generate,
 ]
@@ -40,6 +42,7 @@ async def worker_startup(ctx: dict) -> None:
     from app.pipelines.social.entity_link import EntityLinker
     from app.pipelines.social.claim_check import ClaimChecker
     from app.pipelines.social.alert_signal import AlertSignalService
+    from app.pipelines.social.collectors import build_default_monitor
     from app.pipelines.content.brief_generate import BriefGenerateService
     from app.pipelines.content.suggest_generate import SuggestGenerateService
 
@@ -69,8 +72,15 @@ async def worker_startup(ctx: dict) -> None:
     ctx["entity_linker"] = EntityLinker(qdrant, social_repo, embedder, None, cfg)
     ctx["claim_checker"] = ClaimChecker(router, None)
     ctx["alert_signal_service"] = AlertSignalService(social_repo, cfg)
+    ctx["social_daily_monitor"] = build_default_monitor(cfg)
     ctx["brief_generate_service"] = BriefGenerateService(legal_repo, content_repo, router)
     ctx["suggest_generate_service"] = SuggestGenerateService(legal_repo, content_repo, router)
+
+def cron_jobs(config: BE2Config | None = None) -> list:
+    cfg = config or get_config()
+    if not cfg.social_monitor_enabled:
+        return []
+    return [cron(daily_social_monitor, hour=cfg.social_monitor_cron_hour, minute=cfg.social_monitor_cron_minute, name="daily_social_monitor")]
 
 
 async def worker_shutdown(ctx: dict) -> None:
@@ -89,6 +99,7 @@ class WorkerSettings:
     redis_settings = redis_settings()
     on_startup = worker_startup
     on_shutdown = worker_shutdown
+    cron_jobs = cron_jobs()
     max_tries = 3
     job_timeout = get_config().default_job_timeout_s
 

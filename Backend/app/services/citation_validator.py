@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 from app.schemas import Citation, CandidateKhoan
+
+def _normalize_for_match(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
 
 
 class CitationValidator:
@@ -64,16 +68,27 @@ class CitationValidator:
                 errors.append(f"Khoan canonical text not found in Neo4j for ID: {kid}")
                 continue
 
-            if quote.strip() not in canonical:
+            quote_clean = _normalize_for_match(quote)
+            canonical_clean = _normalize_for_match(canonical)
+            start = canonical_clean.find(quote_clean)
+
+            if start < 0:
                 errors.append(f"Quote mismatch (hallucination detected) for {kid}: quote='{quote.strip()[:40]}...'")
                 continue
 
+            end = start + len(quote_clean)
+            coverage = round(len(quote_clean) / max(1, len(canonical_clean)), 3)
+
             validated.append({
                 "khoan_id": kid,
-                "quote": quote.strip(),
+                "quote": quote_clean,
                 "van_ban": kid.split("::")[0] if "::" in kid else "Nghị định/Luật",
                 "dieu": kid.split("::")[1].split(".")[0].replace("D", "Điều ") if "::" in kid and "." in kid else "Điều 1",
-                "score": 0.95,
+                "start": start,
+                "end": end,
+                "coverage": coverage,
+                "validation_source": "preloaded" if kid in source_map else "neo4j",
+                "score": coverage,
             })
 
         is_valid = len(errors) == 0 and len(validated) > 0

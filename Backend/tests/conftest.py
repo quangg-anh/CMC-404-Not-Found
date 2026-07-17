@@ -146,6 +146,19 @@ class _FakeCursor:
         return self._iter()
 
     async def _iter(self):
+        if "co_khoan" in self.q and "vb_id" in self.q and "return kid" in self.q:
+            yield {
+                "kid": "15/2020/ND-CP::D1.K1",
+                "vb_id": "vb-15-2020",
+                "so_hieu": "15/2020/ND-CP",
+                "ten_van_ban": "Nghị định 15",
+                "dieu_id": "15/2020/ND-CP::D1",
+                "so_dieu": "Điều 1",
+                "tieu_de_dieu": "Kê khai thuế",
+                "khoan_id": "15/2020/ND-CP::D1.K1",
+                "noi_dung": CANONICAL_KHOAN,
+            }
+            return
         if "doi_chieu" in self.q and "clarity_risk" in self.q:
             # Idea 02 clarity index aggregate.
             yield {

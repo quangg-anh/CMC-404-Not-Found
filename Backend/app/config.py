@@ -1,8 +1,19 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from functools import lru_cache
 from pydantic import BaseModel, Field, HttpUrl
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+def _csv_env(name: str, default: str = "") -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+def _bool_env(name: str, default: str = "true") -> bool:
+    return os.getenv(name, default).lower() not in {"0", "false", "no"}
 
 
 class BE2Config(BaseModel):
@@ -37,6 +48,33 @@ class BE2Config(BaseModel):
     default_job_timeout_s: int = Field(default=300, ge=1)
     redis_url: str = "redis://localhost:6379/0"
 
+    social_monitor_enabled: bool = True
+    social_monitor_topics: list[str] = Field(default_factory=list)
+    social_monitor_limit_per_topic: int = Field(default=10, ge=1, le=100)
+    social_monitor_lookback_hours: int = Field(default=24, ge=1, le=168)
+    social_monitor_cron_hour: int = Field(default=6, ge=0, le=23)
+    social_monitor_cron_minute: int = Field(default=0, ge=0, le=59)
+    facebook_access_token: str | None = None
+    facebook_page_ids: list[str] = Field(default_factory=list)
+    facebook_api_version: str = "v20.0"
+    youtube_api_key: str | None = None
+    youtube_api_keys: list[str] = Field(default_factory=list)
+    youtube_channel_ids: list[str] = Field(default_factory=list)
+    youtube_search_order: str = Field(default="relevance", pattern="^(date|rating|relevance|title|videoCount|viewCount)$")
+    youtube_search_results_per_topic: int = Field(default=25, ge=1, le=50)
+    youtube_region_code: str | None = "VN"
+    youtube_relevance_language: str | None = "vi"
+    youtube_filter_vietnamese: bool = True
+    youtube_comments_enabled: bool = True
+    youtube_comments_per_video: int = Field(default=20, ge=1, le=100)
+    youtube_comments_per_topic: int = Field(default=50, ge=1, le=500)
+    youtube_comments_as_posts: bool = True
+    youtube_min_comment_length: int = Field(default=12, ge=1, le=500)
+    youtube_skip_comment_urls: bool = True
+    youtube_skip_videos_without_comments: bool = True
+    youtube_require_topic_in_comments: bool = True
+    forum_feed_urls: list[str] = Field(default_factory=list)
+
 
 @lru_cache(maxsize=1)
 def get_config() -> BE2Config:
@@ -65,4 +103,30 @@ def get_config() -> BE2Config:
         author_hmac_secret=os.getenv("BE2_AUTHOR_HMAC_SECRET"),
         default_job_timeout_s=int(os.getenv("BE2_DEFAULT_JOB_TIMEOUT_S", "300")),
         redis_url=os.getenv("BE2_REDIS_URL", "redis://localhost:6379/0"),
+        social_monitor_enabled=_bool_env("BE2_SOCIAL_MONITOR_ENABLED"),
+        social_monitor_topics=_csv_env("BE2_SOCIAL_MONITOR_TOPICS"),
+        social_monitor_limit_per_topic=int(os.getenv("BE2_SOCIAL_MONITOR_LIMIT_PER_TOPIC", "10")),
+        social_monitor_lookback_hours=int(os.getenv("BE2_SOCIAL_MONITOR_LOOKBACK_HOURS", "24")),
+        social_monitor_cron_hour=int(os.getenv("BE2_SOCIAL_MONITOR_CRON_HOUR", "6")),
+        social_monitor_cron_minute=int(os.getenv("BE2_SOCIAL_MONITOR_CRON_MINUTE", "0")),
+        facebook_access_token=os.getenv("BE2_FACEBOOK_ACCESS_TOKEN"),
+        facebook_page_ids=_csv_env("BE2_FACEBOOK_PAGE_IDS"),
+        facebook_api_version=os.getenv("BE2_FACEBOOK_API_VERSION", "v20.0"),
+        youtube_api_key=os.getenv("BE2_YOUTUBE_API_KEY"),
+        youtube_api_keys=_csv_env("BE2_YOUTUBE_API_KEYS"),
+        youtube_channel_ids=_csv_env("BE2_YOUTUBE_CHANNEL_IDS"),
+        youtube_search_order=os.getenv("BE2_YOUTUBE_SEARCH_ORDER", "relevance"),
+        youtube_search_results_per_topic=int(os.getenv("BE2_YOUTUBE_SEARCH_RESULTS_PER_TOPIC", "25")),
+        youtube_region_code=os.getenv("BE2_YOUTUBE_REGION_CODE", "VN") or None,
+        youtube_relevance_language=os.getenv("BE2_YOUTUBE_RELEVANCE_LANGUAGE", "vi") or None,
+        youtube_filter_vietnamese=_bool_env("BE2_YOUTUBE_FILTER_VIETNAMESE"),
+        youtube_comments_enabled=_bool_env("BE2_YOUTUBE_COMMENTS_ENABLED"),
+        youtube_comments_per_video=int(os.getenv("BE2_YOUTUBE_COMMENTS_PER_VIDEO", "20")),
+        youtube_comments_per_topic=int(os.getenv("BE2_YOUTUBE_COMMENTS_PER_TOPIC", "50")),
+        youtube_comments_as_posts=_bool_env("BE2_YOUTUBE_COMMENTS_AS_POSTS"),
+        youtube_min_comment_length=int(os.getenv("BE2_YOUTUBE_MIN_COMMENT_LENGTH", "12")),
+        youtube_skip_comment_urls=_bool_env("BE2_YOUTUBE_SKIP_COMMENT_URLS"),
+        youtube_skip_videos_without_comments=_bool_env("BE2_YOUTUBE_SKIP_VIDEOS_WITHOUT_COMMENTS"),
+        youtube_require_topic_in_comments=_bool_env("BE2_YOUTUBE_REQUIRE_TOPIC_IN_COMMENTS"),
+        forum_feed_urls=_csv_env("BE2_FORUM_FEED_URLS"),
     )

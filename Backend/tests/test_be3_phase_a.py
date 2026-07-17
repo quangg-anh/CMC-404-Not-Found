@@ -139,3 +139,17 @@ async def test_rag_qa_faithfulness_score_present_on_valid_answer():
         # Real entailment-based score replaces the old hardcoded 0.95.
         assert "citation_faithfulness" in data
         assert data["citation_faithfulness"] >= 0.5
+
+@pytest.mark.asyncio
+async def test_admin_qa_returns_real_graph_paths_from_neo4j():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        headers = {"Authorization": "Bearer test-admin-phap-che"}
+        res = await client.post(
+            "/admin/qa/ask",
+            json={"question": "Quy định về kê khai thuế đúng hạn như thế nào?", "graph_paths_enabled": True},
+            headers=headers,
+        )
+        data = res.json()["data"]
+        assert data["graph_paths"]
+        assert data["graph_paths"][0]["edges"][0]["type"] == "CO_DIEU"
+        assert data["graph_paths"][0]["edges"][1]["type"] == "CO_KHOAN"

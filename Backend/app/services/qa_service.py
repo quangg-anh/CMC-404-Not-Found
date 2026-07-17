@@ -197,6 +197,46 @@ class QAService:
         score = round(supported / len(claims), 3)
         return {"score": score, "contradiction": contradiction, "unsupported": unsupported}
 
+    async def _graph_paths_for_citations(self, citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Return real Neo4j paths from cited Khoản to Điều and Văn bản. Never uses LLM-provided paths."""
+        if not (self.driver and hasattr(self.driver, "session")):
+            return []
+        ids = [str(c.get("khoan_id")) for c in citations if c.get("khoan_id")]
+        if not ids:
+            return []
+        query = """
+        UNWIND $ids AS kid
+        MATCH (vb:VanBanPhapLuat)-[:CO_DIEU]->(d:Dieu)-[:CO_KHOAN]->(k:Khoan {khoan_id: kid})
+        RETURN kid,
+               vb.vb_id AS vb_id, vb.so_hieu AS so_hieu, vb.ten AS ten_van_ban,
+               d.dieu_id AS dieu_id, d.so_dieu AS so_dieu, d.tieu_de AS tieu_de_dieu,
+               k.khoan_id AS khoan_id, k.noi_dung AS noi_dung
+        LIMIT 50
+        """
+        paths: list[dict[str, Any]] = []
+        try:
+            async with self.driver.session() as session:
+                res = await session.run(query, ids=ids)
+                async for r in res:
+                    vb_id = str(r.get("vb_id") or r.get("so_hieu") or "van_ban")
+                    dieu_id = str(r.get("dieu_id") or f"{vb_id}:dieu")
+                    khoan_id = str(r.get("khoan_id") or r.get("kid"))
+                    paths.append({
+                        "khoan_id": khoan_id,
+                        "nodes": [
+                            {"id": vb_id, "type": "VanBanPhapLuat", "label": r.get("so_hieu") or vb_id, "title": r.get("ten_van_ban")},
+                            {"id": dieu_id, "type": "Dieu", "label": r.get("so_dieu") or dieu_id, "title": r.get("tieu_de_dieu")},
+                            {"id": khoan_id, "type": "Khoan", "label": khoan_id, "text": r.get("noi_dung")},
+                        ],
+                        "edges": [
+                            {"source": vb_id, "target": dieu_id, "type": "CO_DIEU"},
+                            {"source": dieu_id, "target": khoan_id, "type": "CO_KHOAN"},
+                        ],
+                    })
+        except Exception:
+            return []
+        return paths
+
     async def _extractive_answer(
         self, candidates: list[CandidateKhoan], audience: str, reason: str
     ) -> dict[str, Any] | None:
@@ -315,8 +355,6 @@ class QAService:
             }
 
         raw_answer = llm_out.get("answer", "")
-        # graph_paths must be derived from Neo4j only (SYSTEM_BACKEND principle), never from LLM output.
-        raw_graph_paths: list[Any] = []
         raw_citations = llm_out.get("citations", [])
 
         # 3. Validate citations against canonical text (Neo4j)
@@ -353,11 +391,13 @@ class QAService:
         elif faith["score"] < 1.0 and confidence == "high":
             confidence = "medium"
 
+        graph_paths = await self._graph_paths_for_citations(validated_citations) if (graph_paths_enabled or audience == "admin") else []
+
         return {
             "answer": raw_answer,
             "citations": validated_citations,
             "confidence": confidence,
-            "graph_paths": raw_graph_paths if (graph_paths_enabled or audience == "admin") else [],
+            "graph_paths": graph_paths,
             "audience": audience,
             "citation_faithfulness": faith["score"],
             "as_of": as_of_val,
