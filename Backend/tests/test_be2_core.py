@@ -130,6 +130,17 @@ def test_ingest_pseudonymizes_author():
     assert post.external_id == "1"
     assert post.tac_gia_hash != "raw-id"
 
+@pytest.mark.asyncio
+async def test_nli_default_heuristic_supports_gold_patterns():
+    result = await NLIService(BE2Config(nli_confidence_threshold=0.7)).nli_pair(
+        "To chuc phai thong bao cho co quan quan ly khi xay ra su co lo lot du lieu.",
+        "Khong dung rang chuc phai thong bao cho co quan quan ly khi xay ra su co lo lot du.",
+    )
+    assert result["label"] == "mau_thuan"
+
+    unknown = await NLIService(BE2Config()).nli_pair("Quy dinh ve bao ve du lieu.", "Van de nay chua duoc quy dinh ro rang.")
+    assert unknown["label"] == "khong_ro"
+
 def test_be2_worker_settings_are_scope_limited():
     names = {fn.__name__ for fn in BE2_WORKER_FUNCTIONS}
     assert names == SOCIAL_JOB_NAMES | CONTENT_JOB_NAMES
