@@ -13,6 +13,9 @@ from app.pipelines.content.validators import validate_citations
 from app.pipelines.social.entity_link import EntityLinker
 from app.pipelines.social.ingest import normalize_social_payload
 from app.schemas import CandidateKhoan, Citation, NliLabel, TopicResult
+from app.workers.arq_settings import BE2_WORKER_FUNCTIONS, redis_settings
+from app.workers.content_jobs import JOB_NAMES as CONTENT_JOB_NAMES
+from app.workers.social_jobs import JOB_NAMES as SOCIAL_JOB_NAMES
 
 
 class SimpleOut(BaseModel):
@@ -126,3 +129,10 @@ def test_ingest_pseudonymizes_author():
     assert post.platform == "facebook"
     assert post.external_id == "1"
     assert post.tac_gia_hash != "raw-id"
+
+def test_be2_worker_settings_are_scope_limited():
+    names = {fn.__name__ for fn in BE2_WORKER_FUNCTIONS}
+    assert names == SOCIAL_JOB_NAMES | CONTENT_JOB_NAMES
+    assert "publish" not in " ".join(names)
+    settings = redis_settings(BE2Config(redis_url="redis://localhost:6379/5"))
+    assert settings.database == 5

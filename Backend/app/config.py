@@ -30,6 +30,7 @@ class BE2Config(BaseModel):
 
     author_hmac_secret: str | None = None
     default_job_timeout_s: int = Field(default=300, ge=1)
+    redis_url: str = "redis://localhost:6379/0"
 
 
 @lru_cache(maxsize=1)
@@ -56,4 +57,5 @@ def get_config() -> BE2Config:
         alert_cooldown_s=int(os.getenv("BE2_ALERT_COOLDOWN_S", "3600")),
         author_hmac_secret=os.getenv("BE2_AUTHOR_HMAC_SECRET"),
         default_job_timeout_s=int(os.getenv("BE2_DEFAULT_JOB_TIMEOUT_S", "300")),
+        redis_url=os.getenv("BE2_REDIS_URL", "redis://localhost:6379/0"),
     )
