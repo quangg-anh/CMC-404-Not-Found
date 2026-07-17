@@ -14,9 +14,15 @@
 | DB ↔ BE — Neo4j label/rel | ✅ Khớp | `BaiDang`, `ChuDe`, `Khoan`, `AlertMeta`, `YKien` + `THAO_LUAN_VE`, `GAN_CO_CAN_KIEM_CHUNG`, `DOI_CHIEU` đúng ontology. |
 | DB ↔ BE — Neo4j **key property** | 🟡 Lệch | Xem §3. |
 | DB ↔ BE — Qdrant | ✅ Khớp | Collection `khoan/baidang/chude`, dim 1024, Cosine. |
-| DB ↔ BE — Postgres | ❌ **Lệch, sẽ lỗi khi chạy thật** | Xem §2. |
+| DB ↔ BE — Postgres | ✅ **Đã fix (2026-07-17)** | BE2 sửa adapter khớp cột/enum. Xem §2. |
 | BE ↔ FE | ❌ Chưa nối | FE dùng dữ liệu mock, chưa gọi API. Xem §4. |
-| Chạy chung | ❌ Chưa | Máy dev chưa cài Python nên BE chưa chạy thật; chỉ DB stack chạy. |
+| Chạy chung | ⚠️ BE crash khi boot | Đã cài Python, nhưng `uvicorn` fail do ImportError (xem §7). |
+
+### Cập nhật 2026-07-17 (sau khi BE2 fix)
+- ✅ **Postgres**: `postgres_content.py` đã map đúng `briefs(id,tieu_de,media_type,status,citations)`, `suggestions(id,draft_text,alert_ids,khoan_ids,claim_labels,status)`, đọc `alerts` theo cột; cast enum + cấp `id` từ `uuid` Neo4j. **Khớp schema.**
+- ✅ **Neo4j key**: `AlertMeta {uuid}` và `YKien {uuid}` (uuid5 deterministic) — khớp constraint `alertmeta_uuid`/`ykien_uuid`.
+- ✅ **Ontology**: DB đã thêm cạnh `LIEN_QUAN: BaiDang → YKien` (adapter `save_nli` dùng) vào `ontology.json` để đồng bộ contract.
+- ❌ **Blocker mới (BE scope)**: BE không boot — xem §7.
 
 **Quyết định team (2026-07-17):** giữ schema theo `SYSTEM_DATA.md` §4.2 → **BE2 sửa adapter** cho khớp (hướng B). DB **không** đổi cột.
 
@@ -99,8 +105,25 @@ Thứ tự phụ thuộc: **DB → BE → FE**.
 
 ## 6. Việc cần làm để "3 phần nối nhau thật"
 
-- [ ] **BE2**: sửa `postgres_content.py` theo §2 (map đúng cột, cấp `id` từ uuid Neo4j).
-- [ ] **BE2 + DB**: chốt key `AlertMeta`/`YKien` (§3).
+- [x] **BE2**: sửa `postgres_content.py` theo §2 (map đúng cột, cấp `id` từ uuid Neo4j). ✅ 2026-07-17
+- [x] **BE2 + DB**: chốt key `AlertMeta`/`YKien` (§3) → BE dùng `uuid`, DB thêm cạnh `LIEN_QUAN BaiDang→YKien`. ✅
+- [ ] **BE**: sửa ImportError để `uvicorn` boot được (§7).
 - [ ] **FE**: thêm api-client + thay mock bằng gọi API thật (§4).
 - [ ] **Team**: chạy end-to-end 1 lần (DB seed → BE ingest/QA → FE hiển thị).
 - [x] **DB**: schema/seed/gold/backup sẵn sàng, connection khớp env BE.
+
+---
+
+## 7. Blocker mới — Backend không khởi động (BE scope)
+
+`uvicorn app.main:app` fail ngay khi import (exit 1):
+
+```
+ImportError: cannot import name 'verify_and_publish_brief'
+from 'app.services.publish_gate'
+  ... app/services/brief_service.py line 7
+```
+
+- Nguyên nhân: `publish_gate.py` export **class** `PublishGateService` với **method** `verify_and_publish_brief`, nhưng `brief_service.py` lại `from app.services.publish_gate import verify_and_publish_brief` (import như hàm module-level → không tồn tại).
+- Cách sửa (BE): hoặc thêm hàm wrapper `verify_and_publish_brief` ở `publish_gate.py`, hoặc đổi `brief_service.py` sang dùng `PublishGateService().verify_and_publish_brief(...)`.
+- **Không liên quan DB.** Sau khi sửa, chạy lại `uvicorn ... --port 8000` rồi `GET /health` để xác nhận.
