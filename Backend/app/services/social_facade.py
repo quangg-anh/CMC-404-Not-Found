@@ -108,33 +108,48 @@ class SocialAlertFacade:
 
         return items
 
+    @staticmethod
+    def _alert_from_row(row: dict[str, Any]) -> dict[str, Any]:
+        """Normalize an alerts row into the API shape.
+
+        Handles both the real normalized schema (chu_de/khoan_ids/severity/volume/status)
+        and the legacy `payload_json` blob (used by test fakes).
+        """
+        if "payload_json" in row and row["payload_json"]:
+            p = row["payload_json"]
+            if isinstance(p, str):
+                p = json.loads(p)
+            p.setdefault("alert_id", str(row.get("id")))
+            return p
+        khoan_ids = row.get("khoan_ids") or []
+        if isinstance(khoan_ids, str):
+            khoan_ids = json.loads(khoan_ids)
+        severity = row.get("severity")
+        volume = row.get("volume", 0) or 0
+        created_at = row.get("created_at")
+        return {
+            "alert_id": str(row.get("id")),
+            "chu_de": row.get("chu_de"),
+            "khoan_ids": khoan_ids,
+            "severity": severity,
+            "volume": volume,
+            "cluster_size": volume,
+            "status": str(row.get("status")) if row.get("status") is not None else "open",
+            "nli_label": "mau_thuan" if severity == "high" else "khong_ro",
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+        }
+
     async def list_alerts(self, severity: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
         """List alerts generated from BE2 claim check and NLI signal detection in real DB."""
         items: list[dict[str, Any]] = []
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
-                    rows = await conn.fetch("SELECT id, payload_json, created_at FROM alerts ORDER BY created_at DESC LIMIT 100")
+                    rows = await conn.fetch(
+                        "SELECT id, chu_de, khoan_ids, severity, volume, status, created_at FROM alerts ORDER BY created_at DESC LIMIT 100"
+                    )
                     for r in rows:
-                        p = r["payload_json"]
-                        if isinstance(p, str):
-                            p = json.loads(p)
-                        if severity and p.get("severity") != severity:
-                            continue
-                        if status and p.get("status") != status:
-                            continue
-                        if "alert_id" not in p:
-                            p["alert_id"] = str(r["id"])
-                        items.append(p)
-            except Exception:
-                pass
-
-        if not items and self.driver and hasattr(self.driver, "session"):
-            try:
-                async with self.driver.session() as session:
-                    res = await session.run("MATCH (a:Alert) RETURN a ORDER BY a.created_at DESC LIMIT 100")
-                    async for record in res:
-                        data = dict(record["a"])
+                        data = self._alert_from_row(dict(r))
                         if severity and data.get("severity") != severity:
                             continue
                         if status and data.get("status") != status:
@@ -150,24 +165,11 @@ class SocialAlertFacade:
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
-                    row = await conn.fetchrow("SELECT id, payload_json, created_at FROM alerts WHERE id = $1", alert_id)
+                    row = await conn.fetchrow(
+                        "SELECT id, chu_de, khoan_ids, severity, volume, status, created_at FROM alerts WHERE id = $1", alert_id
+                    )
                     if row:
-                        p = row["payload_json"]
-                        if isinstance(p, str):
-                            p = json.loads(p)
-                        if "alert_id" not in p:
-                            p["alert_id"] = str(row["id"])
-                        return p
-            except Exception:
-                pass
-
-        if self.driver and hasattr(self.driver, "session"):
-            try:
-                async with self.driver.session() as session:
-                    res = await session.run("MATCH (a:Alert) WHERE a.alert_id = $id OR id(a) = $id RETURN a", id=alert_id)
-                    record = await res.single()
-                    if record and record["a"]:
-                        return dict(record["a"])
+                        return self._alert_from_row(dict(row))
             except Exception:
                 pass
 
@@ -207,26 +209,34 @@ class SocialAlertFacade:
                 except Exception:
                     pass
 
-        # Update alerts table in Postgres
+        # Map the logical action to the alert_status enum {open, triaged, closed}.
+        db_status = {
+            "investigate": "triaged",
+            "create_suggest": "triaged",
+            "resolve": "closed",
+            "dismiss": "closed",
+        }.get(action, "open")
+
+        # Update alerts table in Postgres (real schema uses a `status` enum column).
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
                     await conn.execute(
-                        "UPDATE alerts SET payload_json = jsonb_set(payload_json, '{status}', $1::jsonb) WHERE id = $2",
-                        json.dumps(new_status),
+                        "UPDATE alerts SET status = $1::alert_status, updated_at = now() WHERE id = $2::uuid",
+                        db_status,
                         alert_id,
                     )
             except Exception:
                 pass
 
-        # Update alerts node in Neo4j if exists
+        # Update AlertMeta node in Neo4j if exists
         if self.driver and hasattr(self.driver, "session"):
             try:
                 async with self.driver.session() as session:
                     await session.run(
-                        "MATCH (a:Alert) WHERE a.alert_id = $id SET a.status = $status, a.triaged_by = $user",
+                        "MATCH (a:AlertMeta) WHERE a.uuid = $id SET a.status = $status, a.triaged_by = $user",
                         id=alert_id,
-                        status=new_status,
+                        status=db_status,
                         user=user_id,
                     )
             except Exception:

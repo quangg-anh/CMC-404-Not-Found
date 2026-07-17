@@ -13,24 +13,38 @@ class SuggestService:
         self.pool = pool
         self.driver = neo4j_driver
 
+    @staticmethod
+    def _row_to_suggestion(row: dict[str, Any]) -> dict[str, Any]:
+        def _json(val: Any) -> Any:
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except Exception:
+                    return val
+            return val
+
+        created_at = row.get("created_at")
+        return {
+            "id": str(row.get("id")),
+            "draft_text": row.get("draft_text"),
+            "alert_ids": _json(row.get("alert_ids")) or [],
+            "khoan_ids": _json(row.get("khoan_ids")) or [],
+            "claim_labels": _json(row.get("claim_labels")) or [],
+            "status": str(row.get("status")) if row.get("status") is not None else "draft",
+            "created_by": str(row["created_by"]) if row.get("created_by") else None,
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+        }
+
     async def list_suggestions(self, status: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         """List suggestions directly from Postgres table suggestions."""
         items: list[dict[str, Any]] = []
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
-                    query = "SELECT id, tieu_de, noi_dung_dinh_chinh, khoan_doi_chieu_id, status, created_by, created_at FROM suggestions ORDER BY created_at DESC LIMIT $1"
+                    query = "SELECT id, draft_text, alert_ids, khoan_ids, claim_labels, status, created_by, created_at FROM suggestions ORDER BY created_at DESC LIMIT $1"
                     rows = await conn.fetch(query, limit)
                     for r in rows:
-                        data = {
-                            "id": str(r["id"]),
-                            "tieu_de": r["tieu_de"],
-                            "noi_dung_dinh_chinh": r["noi_dung_dinh_chinh"],
-                            "khoan_doi_chieu_id": r["khoan_doi_chieu_id"],
-                            "status": r["status"],
-                            "created_by": r["created_by"],
-                            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                        }
+                        data = self._row_to_suggestion(dict(r))
                         if status and data["status"] != status:
                             continue
                         items.append(data)
@@ -43,37 +57,37 @@ class SuggestService:
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
-                    row = await conn.fetchrow("SELECT * FROM suggestions WHERE id = $1", suggest_id)
+                    row = await conn.fetchrow(
+                        "SELECT id, draft_text, alert_ids, khoan_ids, claim_labels, status, created_by, created_at FROM suggestions WHERE id = $1::uuid",
+                        suggest_id,
+                    )
                     if row:
-                        data = dict(row)
-                        if data.get("created_at"):
-                            data["created_at"] = data["created_at"].isoformat()
-                        return data
+                        return self._row_to_suggestion(dict(row))
             except Exception:
                 pass
         return None
 
     async def generate_suggestion(self, payload: dict[str, Any], user_id: str) -> dict[str, Any]:
-        """Generate a new suggestion draft and insert into real Postgres."""
-        suggest_id = f"suggest-{uuid.uuid4().hex[:8]}"
-        tieu_de = payload.get("tieu_de", "Đề xuất đính chính tự động")
-        noi_dung = payload.get("noi_dung_dinh_chinh", "Nội dung đính chính chuẩn hóa dựa trên trích dẫn pháp lý chính thức.")
-        khoan_id = payload.get("khoan_doi_chieu_id", "13/2023/ND-CP::D4.K1")
+        """Generate a new suggestion draft and insert into real Postgres (schema 003)."""
+        suggest_id = str(uuid.uuid4())
+        tieu_de = payload.get("tieu_de") or "Đề xuất đính chính tự động"
+        noi_dung = payload.get("noi_dung_dinh_chinh") or "Nội dung đính chính chuẩn hóa dựa trên trích dẫn pháp lý chính thức."
+        draft_text = f"{tieu_de}\n\n{noi_dung}".strip()
+        khoan_ids = [payload["khoan_doi_chieu_id"]] if payload.get("khoan_doi_chieu_id") else []
 
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
                     await conn.execute(
                         """
-                        INSERT INTO suggestions (id, tieu_de, noi_dung_dinh_chinh, khoan_doi_chieu_id, status, created_by, created_at)
-                        VALUES ($1, $2, $3, $4, 'draft', $5, $6)
-                        ON CONFLICT DO NOTHING
+                        INSERT INTO suggestions (id, draft_text, alert_ids, khoan_ids, claim_labels, status, created_by, created_at)
+                        VALUES ($1::uuid, $2, $3::jsonb, $4::jsonb, '[]'::jsonb, 'draft'::dexuat_status, NULL, $5)
+                        ON CONFLICT (id) DO NOTHING
                         """,
                         suggest_id,
-                        tieu_de,
-                        noi_dung,
-                        khoan_id,
-                        user_id,
+                        draft_text,
+                        json.dumps([]),
+                        json.dumps(khoan_ids),
                         datetime.now(timezone.utc),
                     )
             except Exception:
@@ -81,11 +95,12 @@ class SuggestService:
 
         return {
             "id": suggest_id,
-            "tieu_de": tieu_de,
-            "noi_dung_dinh_chinh": noi_dung,
-            "khoan_doi_chieu_id": khoan_id,
+            "draft_text": draft_text,
+            "alert_ids": [],
+            "khoan_ids": khoan_ids,
+            "claim_labels": [],
             "status": "draft",
-            "created_by": user_id,
+            "created_by": None,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -95,21 +110,26 @@ class SuggestService:
         if not suggest:
             return None
 
-        # Guardrail: Never allow status 'published' for Suggestions
+        # Guardrail: Suggestions can never be 'published' (not a valid dexuat_status either).
         if updates.get("status") == "published":
             raise ValueError("Guardrail Violation: Suggestions (DeXuatDinhChinh) cannot be published directly to Citizen Portal.")
 
-        for k in ["tieu_de", "noi_dung_dinh_chinh", "khoan_doi_chieu_id", "status"]:
-            if k in updates and updates[k] is not None:
-                suggest[k] = updates[k]
+        if updates.get("tieu_de") or updates.get("noi_dung_dinh_chinh"):
+            tieu_de = updates.get("tieu_de") or ""
+            noi_dung = updates.get("noi_dung_dinh_chinh") or ""
+            suggest["draft_text"] = f"{tieu_de}\n\n{noi_dung}".strip() or suggest["draft_text"]
+        if updates.get("khoan_doi_chieu_id"):
+            suggest["khoan_ids"] = [updates["khoan_doi_chieu_id"]]
+        if updates.get("status"):
+            suggest["status"] = updates["status"]
 
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
                     await conn.execute(
-                        "UPDATE suggestions SET tieu_de = $1, noi_dung_dinh_chinh = $2, status = $3 WHERE id = $4",
-                        suggest["tieu_de"],
-                        suggest["noi_dung_dinh_chinh"],
+                        "UPDATE suggestions SET draft_text = $1, khoan_ids = $2::jsonb, status = $3::dexuat_status WHERE id = $4::uuid",
+                        suggest["draft_text"],
+                        json.dumps(suggest["khoan_ids"]),
                         suggest["status"],
                         suggest_id,
                     )
