@@ -52,6 +52,9 @@ from app.api.admin import briefs as admin_briefs
 from app.api.admin import suggestions as admin_suggestions
 from app.api.citizen import news as citizen_news
 
+# Auth (login backed by Postgres users table)
+from app.api import auth as auth_router
+
 setup_logging("INFO")
 logger = get_logger("app.main")
 
@@ -184,3 +187,6 @@ app.include_router(admin_dashboard.router, prefix="/admin")
 app.include_router(admin_briefs.router, prefix="/admin")
 app.include_router(admin_suggestions.router, prefix="/admin")
 app.include_router(citizen_news.router, prefix="/citizen")
+
+# Auth router (no prefix -> POST /auth/login, GET /auth/me)
+app.include_router(auth_router.router)

@@ -33,10 +33,6 @@ function Header() {
           <Link to="/van-ban" className="px-4 py-2 rounded-full text-sm font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 transition-all">
             <BookOpen size={18} /> Văn bản
           </Link>
-          <div className="w-px h-6 bg-slate-200 mx-2"></div>
-          <a href="/admin/" className="px-6 py-2 rounded-full text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5">
-            Cổng cán bộ
-          </a>
         </nav>
       </div>
     </header>

@@ -1,30 +1,38 @@
 import { useState } from 'react';
-import { ShieldCheck, Eye, EyeSlash, ArrowRight, Spinner, Scales } from '@phosphor-icons/react';
-import { setToken } from '../../lib/api';
+import { ShieldCheck, Eye, EyeSlash, ArrowRight, Spinner, Scales, WarningCircle } from '@phosphor-icons/react';
+import { apiPost, setToken } from '../../lib/api';
+
+interface LoginResponse {
+  token: string;
+  user: { id: string; email: string; full_name: string | null; role: string; roles: string[]; is_admin: boolean };
+}
 
 export default function LoginPage({ onLogin }: { onLogin: (role: string) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
-    setTimeout(() => {
-      setIsLoading(false);
-      // Simulate Role-Based Access Control (RBAC)
-      if (email.toLowerCase().includes('citizen') || email.toLowerCase().includes('user') || email.toLowerCase().includes('dan')) {
-        // Redirect to Citizen portal using the shared port
-        window.location.href = '/citizen';
+    setError(null);
+    try {
+      // Real authentication against the Postgres `users` table (bcrypt via pgcrypto).
+      const res = await apiPost<LoginResponse>('/auth/login', { email: email.trim(), password });
+      setToken(res.token);
+      if (res.user.is_admin) {
+        onLogin(res.user.role);
       } else {
-        // Admin stays in the Admin dashboard. Store a dev bearer so RBAC-protected
-        // /admin/* calls carry an Authorization header (dev/eval multi-role token).
-        setToken('test-admin-multi');
-        onLogin('admin');
+        // Citizen accounts don't belong in the admin console — send them to the citizen portal.
+        window.location.href = '/citizen';
       }
-    }, 800);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Đăng nhập thất bại. Vui lòng thử lại.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -87,7 +95,7 @@ export default function LoginPage({ onLogin }: { onLogin: (role: string) => void
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="VD: admin@lexsocial.gov.vn (Cán bộ) hoặc user@gmail.com (Người dân)"
+                placeholder="VD: admin@local (cán bộ) hoặc citizen@local (người dân)"
                 className="w-full px-5 py-4 bg-surface border border-border rounded-xl text-primary font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
               />
             </div>
@@ -122,6 +130,12 @@ export default function LoginPage({ onLogin }: { onLogin: (role: string) => void
               </div>
               <a href="#" className="text-sm font-bold text-primary hover:text-accent transition-colors">Quên mật khẩu?</a>
             </div>
+
+            {error && (
+              <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-semibold">
+                <WarningCircle size={18} weight="fill" className="shrink-0" /> {error}
+              </div>
+            )}
 
             <button 
               type="submit" 

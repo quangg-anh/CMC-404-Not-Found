@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import base64
 import hmac
 import hashlib
+import json
+import os
+import time
 from enum import StrEnum
 from typing import Any, Callable
 from pydantic import BaseModel, Field
@@ -9,6 +13,47 @@ from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 security_bearer = HTTPBearer(auto_error=False)
+
+# Stateless session token signed with HMAC-SHA256. Real users authenticate via the Postgres
+# `users` table (see app/api/auth.py); we then hand out one of these so RBAC-protected /admin
+# calls carry their real role without a per-request DB lookup. NOT a full JWT — no external deps.
+_AUTH_SECRET = os.getenv("AUTH_TOKEN_SECRET", "dev-lexsocial-secret-change-me")
+_TOKEN_PREFIX = "lx1"
+_TOKEN_TTL_S = int(os.getenv("AUTH_TOKEN_TTL_S", "43200"))  # 12h default
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def issue_token(user_id: str, email: str | None, role: str, ttl_s: int | None = None) -> str:
+    """Mint a signed session token encoding the user's id/email/role and an expiry."""
+    payload = {"uid": user_id, "eml": email, "rol": role, "exp": int(time.time()) + (ttl_s or _TOKEN_TTL_S)}
+    payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    sig = hmac.new(_AUTH_SECRET.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{_TOKEN_PREFIX}.{payload_b64}.{sig}"
+
+
+def _verify_signed_token(token: str) -> "UserToken | None":
+    """Validate an ``lx1.`` token: correct signature + not expired. Returns None otherwise."""
+    try:
+        prefix, payload_b64, sig = token.split(".")
+        if prefix != _TOKEN_PREFIX:
+            return None
+        expected = hmac.new(_AUTH_SECRET.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            return None
+        payload = json.loads(_b64url_decode(payload_b64))
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+        role = str(payload.get("rol") or Role.CITIZEN.value)
+        return UserToken(user_id=str(payload.get("uid") or "user"), email=payload.get("eml"), roles=[role])
+    except Exception:  # noqa: BLE001 - any malformed token is simply rejected
+        return None
 
 
 class Role(StrEnum):
@@ -67,6 +112,12 @@ def decode_or_mock_token(token_str: str | None) -> UserToken:
         )
     if t == "test-citizen":
         return UserToken(user_id="user-citizen-1", email="citizen@gmail.com", roles=[Role.CITIZEN.value])
+
+    # Real signed session token (issued by /auth/login after verifying the Postgres users table).
+    if t.startswith(_TOKEN_PREFIX + "."):
+        verified = _verify_signed_token(t)
+        # Fail-closed: an lx1 token that fails signature/expiry is anonymous, never citizen-by-default.
+        return verified if verified is not None else UserToken(user_id="anon", roles=[Role.ANONYMOUS.value])
 
     # Any other bearer string is treated as an unprivileged citizen (never admin). A real JWT
     # verifier should replace this branch in production.
