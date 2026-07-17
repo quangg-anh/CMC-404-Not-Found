@@ -1,3 +1,4 @@
+import difflib
 import logging
 import re
 from typing import List, Dict, Any
@@ -35,6 +36,25 @@ class VersionDiff:
                 "raw_text": match.group(0)
             })
         return results
+
+    def diff(self, old_text: str, new_text: str) -> List[Dict[str, Any]]:
+        """Sinh danh sách hunk thay đổi cấp token giữa old_text và new_text bằng difflib.
+
+        Mỗi hunk: {type: replace|delete|insert, old: <đoạn cũ>, new: <đoạn mới>}.
+        """
+        old_tokens = (old_text or "").split()
+        new_tokens = (new_text or "").split()
+        matcher = difflib.SequenceMatcher(a=old_tokens, b=new_tokens)
+        hunks: List[Dict[str, Any]] = []
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                continue
+            hunks.append({
+                "type": tag,
+                "old": " ".join(old_tokens[i1:i2]),
+                "new": " ".join(new_tokens[j1:j2]),
+            })
+        return hunks
 
     def compare_khoan_texts(self, old_text: str, new_text: str) -> Dict[str, Any]:
         """

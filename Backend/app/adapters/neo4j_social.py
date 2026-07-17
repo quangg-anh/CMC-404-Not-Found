@@ -93,7 +93,7 @@ class Neo4jSocialRepository:
             y.claim_text = $claim_text,
             y.stance = $label,
             y.confidence = $score
-        MERGE (b)-[:LIEN_QUAN]->(y)
+        MERGE (b)-[:CO_YKIEN]->(y)
         MERGE (y)-[r:DOI_CHIEU]->(k)
         SET r.label = $label, r.score = $score
         """

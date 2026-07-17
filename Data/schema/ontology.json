@@ -192,7 +192,7 @@
     { "type": "SUA_DOI", "from": "VanBanPhapLuat", "to": "VanBanPhapLuat" },
     { "type": "THAO_LUAN_VE", "from": "BaiDang", "to": "ChuDe" },
     { "type": "LIEN_QUAN", "from": "ChuDe", "to": ["Khoan", "Dieu", "VanBanPhapLuat"] },
-    { "type": "LIEN_QUAN", "from": "BaiDang", "to": "YKien" },
+    { "type": "CO_YKIEN", "from": "BaiDang", "to": "YKien" },
     {
       "type": "GAN_CO_CAN_KIEM_CHUNG",
       "from": "BaiDang",
