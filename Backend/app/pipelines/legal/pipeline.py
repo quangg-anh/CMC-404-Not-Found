@@ -14,6 +14,7 @@ import httpx
 
 from app.adapters.neo4j_legal import Neo4jLegalRepository
 from app.pipelines.legal.parser import LegalParser
+from app.pipelines.legal.extract_text import extract_text
 from app.pipelines.legal.normalize import normalize_so_hieu, generate_van_ban_id, generate_khoan_id
 from app.pipelines.legal.extractor import LegalExtractor
 
@@ -90,6 +91,47 @@ async def _resolve_text(url_or_content: str | None) -> str:
     return value
 
 
+async def _resolve_files_text(pool: Any, minio: Any, file_ids: list[str]) -> str:
+    """Read uploaded files from MinIO (by their van_ban_files rows) and extract their text.
+
+    This is the bridge that turns a file sitting in object storage into knowledge the AI can
+    learn: bytes -> extract_text() -> plain text -> LegalParser downstream.
+    """
+    if not (pool and minio and file_ids and hasattr(pool, "acquire")):
+        return ""
+    ids: list[uuid.UUID] = []
+    for fid in file_ids:
+        try:
+            ids.append(uuid.UUID(str(fid)))
+        except (ValueError, TypeError):
+            continue
+    if not ids:
+        return ""
+
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT filename, mime, storage_key FROM van_ban_files WHERE file_id = ANY($1::uuid[])",
+                ids,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("legal_ingest: failed to load van_ban_files rows: %s", exc)
+        return ""
+
+    parts: list[str] = []
+    for row in rows:
+        try:
+            data = await run_in_threadpool(minio.get_bytes, row["storage_key"])
+            text = extract_text(data, row["filename"], row["mime"] or "")
+            if text.strip():
+                parts.append(text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("legal_ingest: failed to read/extract %s: %s", row["storage_key"], exc)
+    return "\n\n".join(parts)
+
+
 def _build_tree(so_hieu_norm: str, parsed: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Attach canonical dieu_id/khoan_id to the parser tree for Neo4j MERGE."""
     dieu_list: list[dict[str, Any]] = []
@@ -155,11 +197,23 @@ async def run_legal_ingest(
     payload: dict[str, Any],
     qdrant: Any = None,
     embedder: Any = None,
+<<<<<<< HEAD
     llm_router: Any = None,
+=======
+    pool: Any = None,
+    minio: Any = None,
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
 ) -> dict[str, Any]:
     """Parse the document text, upsert its Điều/Khoản into Neo4j, index Khoản into Qdrant, and run NER.
 
+<<<<<<< HEAD
     Returns a status dict: {status, vb_id, dieu_count, khoan_count, indexed_count, ner_count, needs_review, message}.
+=======
+    Text is resolved in priority order: pasted content/URL first, then any uploaded files
+    (``file_ids``) read back from MinIO and text-extracted.
+
+    Returns a status dict: {status, vb_id, dieu_count, khoan_count, indexed_count, needs_review, message}.
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
     - status="success" when at least one Điều was written,
     - status="needs_review" when text was present but no structure could be parsed,
     - status="queued" when no content was supplied (awaiting file upload / async fetch).
@@ -170,6 +224,11 @@ async def run_legal_ingest(
     vb_id = generate_van_ban_id(so_hieu_norm, ngay_ban_hanh)
 
     text = await _resolve_text(payload.get("url_or_content"))
+    source = "text/URL"
+    if not text.strip():
+        file_ids = payload.get("file_ids") or []
+        text = await _resolve_files_text(pool, minio, file_ids)
+        source = "file"
     if not text.strip():
         return {
             "status": "queued",
@@ -178,7 +237,7 @@ async def run_legal_ingest(
             "khoan_count": 0,
             "indexed_count": 0,
             "needs_review": False,
-            "message": "Chưa có nội dung để bóc tách; job ở hàng đợi chờ file/worker.",
+            "message": "Chưa có nội dung để bóc tách (không có text/URL và không đọc được file đính kèm).",
         }
 
     parser = LegalParser()
@@ -199,6 +258,11 @@ async def run_legal_ingest(
     }
 
     if not dieu_list:
+        hint = (
+            "Đọc được text từ file nhưng không tách được Điều nào (layout PDF/scan lỗi hoặc cần LLM fallback)."
+            if source == "file"
+            else "Không bóc tách được Điều nào (layout lỗi hoặc cần LLM fallback)."
+        )
         return {
             "status": "needs_review",
             "vb_id": vb_id,
@@ -206,7 +270,7 @@ async def run_legal_ingest(
             "khoan_count": 0,
             "indexed_count": 0,
             "needs_review": True,
-            "message": "Không bóc tách được Điều nào (layout lỗi hoặc cần LLM fallback).",
+            "message": hint,
         }
 
     write_res = await Neo4jLegalRepository(driver).upsert_van_ban(doc)

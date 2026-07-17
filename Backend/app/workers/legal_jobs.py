@@ -36,16 +36,24 @@ async def legal_ingest(ctx, job_id: str, payload: Dict[str, Any]):
     pool = ctx.get("db_pool")
     qdrant = ctx.get("qdrant")
     embedder = ctx.get("embedder")
+<<<<<<< HEAD
     llm_router = ctx.get("llm_router")  # injected by worker_startup in arq_settings.py
+=======
+    minio = ctx.get("minio")
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
     logger.info("Worker 'legal_ingest' processing job %s (so_hieu=%s)", job_id, payload.get("so_hieu"))
 
     await _set_job_status(pool, job_id, "running")
     try:
         result = await run_legal_ingest(
+<<<<<<< HEAD
             driver, payload,
             qdrant=qdrant,
             embedder=embedder,
             llm_router=llm_router,
+=======
+            driver, payload, qdrant=qdrant, embedder=embedder, pool=pool, minio=minio
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
         )
     except Exception as exc:  # noqa: BLE001
         await _set_job_status(pool, job_id, "error", str(exc))

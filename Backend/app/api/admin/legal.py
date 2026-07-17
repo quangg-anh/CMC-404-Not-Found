@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
+<<<<<<< HEAD
 from app.api.deps import get_db_pool, get_neo4j_driver, get_qdrant_client, get_embedder, get_llm_router, require_admin, UserToken
+=======
+from app.api.deps import (
+    get_db_pool,
+    get_neo4j_driver,
+    get_qdrant_client,
+    get_embedder,
+    get_minio,
+    require_admin,
+    UserToken,
+)
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
 from app.core.envelope import success_response
 from app.core.logging import get_request_id
 from app.services.diff_facade import LegalDiffFacade
+
+# Max upload size (25 MB) — guards against accidental huge uploads on the sync path.
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 router = APIRouter(tags=["Admin Legal"], dependencies=[Depends(require_admin())])
 
@@ -24,6 +39,42 @@ class LegalDiffRequest(BaseModel):
     method: str = Field(default="auto", description="Phương pháp diff: auto, exact, similarity")
 
 
+@router.post("/legal/upload", summary="Tải file gốc (PDF/DOCX/TXT) lên MinIO để số hóa")
+async def upload_legal_file(
+    file: UploadFile = File(..., description="File văn bản gốc: PDF, DOCX hoặc TXT"),
+    so_hieu: str = Form(..., description="Số hiệu văn bản để gắn file"),
+    visibility: str = Form("internal", description="public | internal"),
+    pool: Any = Depends(get_db_pool),
+    minio: Any = Depends(get_minio),
+    user: UserToken = Depends(require_admin()),
+) -> dict[str, Any]:
+    if minio is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Object storage (MinIO) chưa sẵn sàng; không thể lưu file.",
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File rỗng.")
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File vượt quá giới hạn {_MAX_UPLOAD_BYTES // (1024 * 1024)}MB.",
+        )
+    facade = LegalDiffFacade(pool=pool, minio=minio)
+    try:
+        res = await facade.store_upload(
+            filename=file.filename or "upload.bin",
+            content_type=file.content_type,
+            data=data,
+            so_hieu=so_hieu,
+            visibility=visibility,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return success_response(data=res, request_id=get_request_id())
+
+
 @router.post("/ingest/legal", summary="Đẩy văn bản pháp luật vào pipeline xử lý")
 async def ingest_legal(
     request: IngestLegalRequest,
@@ -31,10 +82,17 @@ async def ingest_legal(
     driver: Any = Depends(get_neo4j_driver),
     qdrant: Any = Depends(get_qdrant_client),
     embedder: Any = Depends(get_embedder),
+<<<<<<< HEAD
     llm_router: Any = Depends(get_llm_router),
     user: UserToken = Depends(require_admin()),
 ) -> dict[str, Any]:
     facade = LegalDiffFacade(pool=pool, neo4j_driver=driver, qdrant=qdrant, embedder=embedder, llm_router=llm_router)
+=======
+    minio: Any = Depends(get_minio),
+    user: UserToken = Depends(require_admin()),
+) -> dict[str, Any]:
+    facade = LegalDiffFacade(pool=pool, neo4j_driver=driver, qdrant=qdrant, embedder=embedder, minio=minio)
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
     res = await facade.ingest_document(request.model_dump())
     return success_response(data=res, request_id=get_request_id())
 

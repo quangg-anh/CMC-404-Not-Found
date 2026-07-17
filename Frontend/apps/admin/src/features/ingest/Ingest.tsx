@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { UploadSimple, FileText, Spinner, CheckCircle, Clock, WarningCircle, ArrowClockwise } from '@phosphor-icons/react';
-import { apiGet, apiPost } from '../../lib/api';
+import { useEffect, useRef, useState } from 'react';
+import { UploadSimple, FileText, Spinner, CheckCircle, Clock, WarningCircle, ArrowClockwise, Paperclip, X } from '@phosphor-icons/react';
+import { apiGet, apiPost, apiUpload } from '../../lib/api';
 
 interface IngestResponse {
   job_id: string;
@@ -10,7 +10,16 @@ interface IngestResponse {
   vb_id?: string;
   dieu_count?: number;
   khoan_count?: number;
+  indexed_count?: number;
   needs_review?: boolean;
+}
+
+interface UploadResponse {
+  file_id: string;
+  storage_key: string;
+  filename: string;
+  van_ban_id: string;
+  size_bytes: number;
 }
 
 interface JobItem {
@@ -49,9 +58,12 @@ export default function IngestPage() {
   const [soHieu, setSoHieu] = useState('');
   const [ten, setTen] = useState('');
   const [content, setContent] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [stage, setStage] = useState<'idle' | 'uploading' | 'ingesting'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [lastJob, setLastJob] = useState<IngestResponse | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [jobs, setJobs] = useState<JobItem[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
@@ -71,23 +83,44 @@ export default function IngestPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!soHieu.trim() || submitting) return;
+    if (!content.trim() && !file) {
+      setError('Cần dán nội dung/URL hoặc chọn file để số hóa.');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
+      // Step 1: if a file was chosen, upload it to MinIO first and collect its file_id.
+      let fileIds: string[] = [];
+      if (file) {
+        setStage('uploading');
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('so_hieu', soHieu.trim());
+        fd.append('visibility', 'public');
+        const up = await apiUpload<UploadResponse>('/admin/legal/upload', fd);
+        fileIds = [up.file_id];
+      }
+      // Step 2: run digitization (parse -> Neo4j -> Qdrant). Backend reads the file back from MinIO.
+      setStage('ingesting');
       const res = await apiPost<IngestResponse>('/admin/ingest/legal', {
         so_hieu: soHieu.trim(),
         ten: ten.trim() || null,
         url_or_content: content.trim() || null,
+        file_ids: fileIds,
       });
       setLastJob(res);
       setSoHieu('');
       setTen('');
       setContent('');
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       loadJobs();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi khi gửi văn bản');
     } finally {
       setSubmitting(false);
+      setStage('idle');
     }
   };
 
@@ -96,7 +129,7 @@ export default function IngestPage() {
       <div className="mb-10">
         <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Số hóa Văn bản Pháp luật</h1>
         <p className="text-slate-500 font-medium">
-          Đưa văn bản mới vào hệ thống. Nhập số hiệu và dán nội dung/URL; hệ thống bóc tách Điều/Khoản và ghi vào đồ thị tri thức ngay.
+          Đưa văn bản mới vào hệ thống. Nhập số hiệu rồi dán nội dung/URL hoặc tải file (PDF/DOCX/TXT); hệ thống lưu file gốc vào MinIO, bóc tách Điều/Khoản vào đồ thị tri thức và index vector để AI truy hồi được ngay.
         </p>
       </div>
 
@@ -131,9 +164,47 @@ export default function IngestPage() {
             className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/10 transition-all resize-y"
           />
         </div>
+        <div className="mb-6">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">File văn bản gốc (PDF / DOCX / TXT)</label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,.txt,.html,.htm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="hidden"
+            id="legal-file-input"
+          />
+          {file ? (
+            <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+              <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 min-w-0">
+                <Paperclip size={16} className="shrink-0" />
+                <span className="truncate">{file.name}</span>
+                <span className="text-slate-400 font-medium shrink-0">({(file.size / 1024).toFixed(0)} KB)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="text-slate-400 hover:text-red-500 transition-colors shrink-0"
+                aria-label="Bỏ file"
+              >
+                <X size={18} weight="bold" />
+              </button>
+            </div>
+          ) : (
+            <label
+              htmlFor="legal-file-input"
+              className="flex items-center gap-2 cursor-pointer bg-slate-50 border border-dashed border-slate-300 rounded-xl px-4 py-3 text-sm font-semibold text-slate-500 hover:border-brand/40 hover:text-brand transition-all"
+            >
+              <Paperclip size={16} /> Chọn file để tải lên MinIO và số hóa…
+            </label>
+          )}
+        </div>
         <div className="flex items-center justify-between">
           <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-            <UploadSimple size={16} /> Tải file PDF/DOCX sẽ hỗ trợ khi endpoint upload sẵn sàng.
+            <UploadSimple size={16} /> Dán nội dung/URL hoặc tải file — hệ thống tự bóc tách Điều/Khoản.
           </p>
           <button
             type="submit"
@@ -141,7 +212,7 @@ export default function IngestPage() {
             className="bg-slate-900 text-white font-bold px-8 py-3 rounded-xl hover:bg-brand transition-colors shadow-lg shadow-slate-900/10 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? <Spinner size={18} className="animate-spin" /> : <UploadSimple size={18} weight="bold" />}
-            {submitting ? 'Đang gửi…' : 'Đưa vào pipeline'}
+            {stage === 'uploading' ? 'Đang tải file…' : stage === 'ingesting' ? 'Đang số hóa…' : 'Đưa vào pipeline'}
           </button>
         </div>
 
@@ -160,7 +231,10 @@ export default function IngestPage() {
             <span>
               Job <code className="bg-white px-1.5 py-0.5 rounded">{lastJob.job_id.slice(0, 8)}</code> — {lastJob.message}
               {typeof lastJob.dieu_count === 'number' && lastJob.dieu_count > 0 && (
-                <span className="ml-1 text-slate-500">({lastJob.dieu_count} Điều · {lastJob.khoan_count} Khoản)</span>
+                <span className="ml-1 text-slate-500">
+                  ({lastJob.dieu_count} Điều · {lastJob.khoan_count} Khoản
+                  {typeof lastJob.indexed_count === 'number' ? ` · ${lastJob.indexed_count} vector` : ''})
+                </span>
               )}
             </span>
           </div>

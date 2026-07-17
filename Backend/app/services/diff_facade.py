@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import uuid
 from typing import Any
 from datetime import datetime, timezone
 from app.pipelines.legal.version_diff import VersionDiff
-from app.pipelines.legal.normalize import normalize_so_hieu
+from app.pipelines.legal.normalize import normalize_so_hieu, generate_van_ban_id
 from app.pipelines.legal.pipeline import run_legal_ingest
 
 _JOB_STATUSES = {"queued", "running", "success", "error", "needs_review"}
@@ -39,14 +40,84 @@ class LegalDiffFacade:
         neo4j_driver: Any | None = None,
         qdrant: Any | None = None,
         embedder: Any | None = None,
+<<<<<<< HEAD
         llm_router: Any | None = None,
+=======
+        minio: Any | None = None,
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
     ) -> None:
         self.pool = pool
         self.driver = neo4j_driver
         self.qdrant = qdrant
         self.embedder = embedder
+<<<<<<< HEAD
         self.llm_router = llm_router
+=======
+        self.minio = minio
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
         self.differ = VersionDiff()
+
+    async def store_upload(
+        self,
+        *,
+        filename: str,
+        content_type: str | None,
+        data: bytes,
+        so_hieu: str,
+        visibility: str = "internal",
+    ) -> dict[str, Any]:
+        """Store a raw uploaded file into MinIO and mirror its metadata into van_ban_files.
+
+        Returns {file_id, storage_key, filename, checksum, van_ban_id, size_bytes} so the caller
+        can pass ``file_id`` into the ingest request. Idempotent per (van_ban_id, checksum).
+        """
+        from fastapi.concurrency import run_in_threadpool
+
+        if not self.minio:
+            raise RuntimeError("MinIO storage unavailable")
+        checksum = hashlib.sha256(data).hexdigest()
+        so_hieu_norm = normalize_so_hieu(so_hieu) if so_hieu else ""
+        vb_id = generate_van_ban_id(so_hieu_norm, "")
+        vis = visibility if visibility in {"public", "internal"} else "internal"
+        storage_key = self.minio.build_key(checksum, filename)
+        await run_in_threadpool(self.minio.put_bytes, storage_key, data, content_type)
+
+        file_id = str(uuid.uuid4())
+        if self.pool and hasattr(self.pool, "acquire"):
+            try:
+                async with self.pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO van_ban_files
+                            (file_id, van_ban_id, filename, mime, storage_key, checksum, visibility)
+                        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::visibility)
+                        ON CONFLICT (van_ban_id, checksum)
+                            DO UPDATE SET filename = EXCLUDED.filename,
+                                          mime = EXCLUDED.mime,
+                                          storage_key = EXCLUDED.storage_key
+                        RETURNING file_id
+                        """,
+                        file_id,
+                        vb_id,
+                        filename,
+                        content_type,
+                        storage_key,
+                        checksum,
+                        vis,
+                    )
+                    if row and row.get("file_id"):
+                        file_id = str(row["file_id"])
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"Không ghi được metadata file: {exc}") from exc
+
+        return {
+            "file_id": file_id,
+            "storage_key": storage_key,
+            "filename": filename,
+            "checksum": checksum,
+            "van_ban_id": vb_id,
+            "size_bytes": len(data),
+        }
 
     async def ingest_document(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Ingest a legal document.
@@ -72,12 +143,23 @@ class LegalDiffFacade:
                     "message": "Đã đưa vào hàng đợi Arq để worker xử lý bất đồng bộ.",
                 }
 
+<<<<<<< HEAD
         # Synchronous path (A): parse + write to Neo4j + index vectors + NER now.
         result = await run_legal_ingest(
             self.driver, payload,
             qdrant=self.qdrant,
             embedder=self.embedder,
             llm_router=self.llm_router,
+=======
+        # Synchronous path (A): parse + write to Neo4j + index vectors now.
+        result = await run_legal_ingest(
+            self.driver,
+            payload,
+            qdrant=self.qdrant,
+            embedder=self.embedder,
+            pool=self.pool,
+            minio=self.minio,
+>>>>>>> 95b532f2fc83bffe655f01bdbbed832984e99759
         )
         await self._update_job_status(job_id, result["status"], result.get("message"))
         return {

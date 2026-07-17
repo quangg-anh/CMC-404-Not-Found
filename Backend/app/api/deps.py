@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+from urllib.parse import urlparse
 import httpx
 from fastapi import Depends, HTTPException, status
 from app.config import BE2Config, get_config
@@ -10,6 +11,7 @@ from app.core.security import Role, UserToken, get_current_user, require_admin, 
 from app.adapters.neo4j_social import Neo4jSocialRepository
 from app.adapters.postgres_content import PostgresContentRepository
 from app.adapters.qdrant_vector import QdrantVectorClient
+from app.adapters.minio_storage import MinioStorage
 from app.intelligence.llm_router import LLMRouter
 from app.intelligence.embedder import Embedder
 
@@ -22,6 +24,7 @@ _qdrant_client: Any | None = None
 _http_client: httpx.AsyncClient | None = None
 _llm_router: LLMRouter | None = None
 _embedder: Embedder | None = None
+_minio_storage: MinioStorage | None = None
 
 
 class RealLLMClient:
@@ -127,6 +130,31 @@ async def get_embedder(config: BE2Config = Depends(get_config)) -> Embedder | No
     return _embedder
 
 
+async def get_minio() -> MinioStorage | None:
+    """Retrieve or initialize the MinIO storage client for raw legal files.
+
+    Returns None (instead of raising) if MinIO/the client lib is unavailable, so text/URL-based
+    ingest keeps working even when object storage is down. The upload endpoint checks for None.
+    """
+    global _minio_storage
+    if _minio_storage is None:
+        endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
+        access = os.getenv("MINIO_ROOT_USER", "minio_admin")
+        secret = os.getenv("MINIO_ROOT_PASSWORD", "change_me_minio")
+        bucket = os.getenv("MINIO_BUCKET_LEGAL", "legal-raw")
+        try:
+            from minio import Minio
+
+            parsed = urlparse(endpoint)
+            host = parsed.netloc or parsed.path
+            secure = parsed.scheme == "https"
+            client = Minio(host, access_key=access, secret_key=secret, secure=secure)
+            _minio_storage = MinioStorage(client, bucket)
+        except Exception:  # noqa: BLE001 - object storage is optional for text ingest
+            return None
+    return _minio_storage
+
+
 async def get_postgres_repo(pool: Any = Depends(get_db_pool)) -> PostgresContentRepository:
     if pool is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Kết nối cơ sở dữ liệu Postgres chưa sẵn sàng.")
@@ -151,6 +179,7 @@ __all__ = [
     "get_qdrant_client",
     "get_llm_router",
     "get_embedder",
+    "get_minio",
     "get_postgres_repo",
     "get_neo4j_repo",
 ]
