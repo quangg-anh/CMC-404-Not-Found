@@ -304,11 +304,28 @@ async def run_legal_ingest(
 
     text = await _resolve_text(payload.get("url_or_content"))
     source = "text/URL"
-    if not text.strip():
-        file_ids = payload.get("file_ids") or []
+    file_ids = payload.get("file_ids") or []
+    if not text.strip() and file_ids:
         text = await _resolve_files_text(pool, minio, file_ids)
         source = "file"
     if not text.strip():
+        # A file WAS uploaded but no text could be pulled out of it → almost always a scanned/
+        # image-only PDF (no text layer). Surface this as needs_review with an actionable hint
+        # instead of a silent "queued" that looks like the job is stuck forever.
+        if file_ids:
+            return {
+                "status": "needs_review",
+                "vb_id": vb_id,
+                "dieu_count": 0,
+                "khoan_count": 0,
+                "indexed_count": 0,
+                "needs_review": True,
+                "message": (
+                    "Không trích được chữ nào từ file — nhiều khả năng đây là PDF scan (ảnh) "
+                    "không có lớp text. Hãy bật OCR (cài Tesseract + gói tiếng Việt 'vie') hoặc "
+                    "dán trực tiếp nội dung văn bản vào ô nội dung để số hóa."
+                ),
+            }
         return {
             "status": "queued",
             "vb_id": vb_id,
@@ -316,7 +333,7 @@ async def run_legal_ingest(
             "khoan_count": 0,
             "indexed_count": 0,
             "needs_review": False,
-            "message": "Chưa có nội dung để bóc tách (không có text/URL và không đọc được file đính kèm).",
+            "message": "Chưa có nội dung để bóc tách (không có text/URL và không có file đính kèm).",
         }
 
     parser = LegalParser()
