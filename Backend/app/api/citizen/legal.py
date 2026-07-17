@@ -58,10 +58,13 @@ async def citizen_get_file_detail(
     item = await facade.get_file_detail(file_id)
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File không tồn tại")
-    # Fail-closed visibility: chỉ trả file khi chính nó hoặc văn bản cha ở trạng thái public.
+    # Fail-closed visibility: trả file CHỈ khi bản thân file public VÀ văn bản cha cũng public.
+    # (Dùng AND, không phải OR: một file internal thuộc văn bản public vẫn phải bị chặn.)
     van_ban_id = item.get("van_ban_id") or item.get("vb_id")
     parent = await facade.get_van_ban_detail(str(van_ban_id)) if van_ban_id else None
-    is_public = item.get("visibility") == "public" or (parent is not None and parent.get("visibility") == "public")
+    file_public = item.get("visibility") == "public"
+    parent_public = parent is None or parent.get("visibility") == "public"
+    is_public = file_public and parent_public
     if not is_public:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File không công khai")
     return success_response(data=item, request_id=get_request_id())

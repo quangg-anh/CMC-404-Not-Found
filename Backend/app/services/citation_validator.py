@@ -11,11 +11,13 @@ class CitationValidator:
         self.driver = neo4j_driver
 
     async def fetch_canonical_text(self, khoan_id: str) -> str | None:
-        """Fetch canonical noi_dung from Neo4j."""
+        """Fetch canonical noi_dung from Neo4j.
+
+        Fail-closed: if there is no usable driver we return None (which makes validation refuse)
+        instead of fabricating canonical text. This is the last anti-hallucination guardrail — it
+        must never invent the source text it is supposed to verify against.
+        """
         if not self.driver or not hasattr(self.driver, "session"):
-            # Fallback mock for unit test/offline when driver is a fake
-            if "15/2020/ND-CP::D1.K1" in khoan_id or khoan_id == "k1":
-                return "Người nộp thuế phải kê khai đúng hạn theo quy định tại Khoản 15/2020/ND-CP::D1.K1."
             return None
 
         try:

@@ -49,23 +49,27 @@ def decode_or_mock_token(token_str: str | None) -> UserToken:
     if t.startswith("Bearer "):
         t = t[7:].strip()
 
-    # Deterministic test/dev shortcuts
-    if t == "test-admin-phap-che" or "admin_phap_che" in t:
+    # Deterministic test/dev shortcuts. EXACT match only — substring matching ("admin_ops" in t)
+    # is a privilege-escalation hole (any string containing the marker would grant admin), so a
+    # role must be granted only for the precise dev token, never for an arbitrary token that
+    # merely happens to contain the marker.
+    if t == "test-admin-phap-che":
         return UserToken(user_id="user-phap-che-1", email="phapche@admin.gov.vn", roles=[Role.ADMIN_PHAP_CHE.value])
-    if t == "test-admin-truyen-thong" or "admin_truyen_thong" in t:
+    if t == "test-admin-truyen-thong":
         return UserToken(user_id="user-truyen-thong-1", email="truyenthong@admin.gov.vn", roles=[Role.ADMIN_TRUYEN_THONG.value])
-    if t == "test-admin-ops" or "admin_ops" in t:
+    if t == "test-admin-ops":
         return UserToken(user_id="user-ops-1", email="ops@admin.gov.vn", roles=[Role.ADMIN_OPS.value])
-    if t == "test-admin-multi" or "admin-multi" in t:
+    if t == "test-admin-multi":
         return UserToken(
             user_id="user-multi-1",
             email="multi@admin.gov.vn",
             roles=[Role.ADMIN_PHAP_CHE.value, Role.ADMIN_TRUYEN_THONG.value, Role.ADMIN_OPS.value],
         )
-    if t == "test-citizen" or "citizen" in t:
+    if t == "test-citizen":
         return UserToken(user_id="user-citizen-1", email="citizen@gmail.com", roles=[Role.CITIZEN.value])
 
-    # Default fallback for valid bearer token string without role indicator
+    # Any other bearer string is treated as an unprivileged citizen (never admin). A real JWT
+    # verifier should replace this branch in production.
     return UserToken(user_id=f"user-{t[:8]}", roles=[Role.CITIZEN.value])
 
 

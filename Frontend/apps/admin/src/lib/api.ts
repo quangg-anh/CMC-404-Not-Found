@@ -11,7 +11,10 @@ export function setToken(token: string): void {
 }
 
 export function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? 'test-admin-multi';
+  // No hardcoded fallback: before a real login there is NO token, so unauthenticated admin
+  // requests are rejected by the backend (RBAC) instead of silently running as admin.
+  // Login.tsx calls setToken() with the dev bearer once the operator "logs in".
+  return localStorage.getItem(TOKEN_KEY) ?? '';
 }
 
 export function clearToken(): void {
