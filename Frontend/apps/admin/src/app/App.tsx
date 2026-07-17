@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { apiGet, clearToken, getToken } from '../lib/api';
 import { ShieldCheck, SquaresFour, Bell, ListMagnifyingGlass, FileText, ShareNetwork, HardDrives, Article, ListChecks, Broadcast, PenNib } from '@phosphor-icons/react';
 import DashboardPage from '../features/dashboard/Dashboard';
 import AlertsPage from '../features/alerts/Alerts';
@@ -119,7 +120,25 @@ function AppContent() {
 }
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // Seed auth state from the persisted bearer so a page reload (F5) keeps the session
+  // instead of bouncing back to the login screen.
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(getToken()));
+
+  // Validate the stored token in the background. Only log out when the backend actively
+  // reports it's not an admin (expired/invalid) — transient network errors are ignored.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    apiGet<{ is_admin?: boolean }>('/auth/me')
+      .then((me) => {
+        if (!me?.is_admin) {
+          clearToken();
+          setIsAuthenticated(false);
+        }
+      })
+      .catch(() => {
+        /* keep session on transient errors (backend momentarily unreachable) */
+      });
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return <LoginPage onLogin={() => setIsAuthenticated(true)} />;

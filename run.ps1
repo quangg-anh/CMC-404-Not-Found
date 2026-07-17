@@ -2,26 +2,29 @@
 =====================================================================
  run.ps1 - Unified launcher for the Legal Knowledge Graph system
 =====================================================================
- One file to start the whole stack. Each long-running process opens in
- its own PowerShell window so you can read its logs and Ctrl+C it.
+ One file to start the whole stack, end to end. Each long-running
+ process opens in its own PowerShell window so you can read its logs
+ and Ctrl+C it individually.
 
  USAGE (from repo root):
-   ./run.ps1                # start backend (BE2+BE3) + frontend (admin+citizen)
-   ./run.ps1 -Backend       # only backend processes
-   ./run.ps1 -Frontend      # only frontend dev servers
-   ./run.ps1 -Stack         # also bring up the Docker data stack + seed first
-   ./run.ps1 -Worker        # also start the Arq workers (BE2 + legal)
+   ./run.ps1                # FULL RUN: data stack + seed + backend + workers + frontend
+                            #   (auto npm install on first run if node_modules is missing)
    ./run.ps1 -Install       # create venv + pip install + npm install, then run
+   ./run.ps1 -Backend       # only backend processes (BE2 + BE3)
+   ./run.ps1 -Frontend      # only frontend dev servers (admin + citizen)
+   ./run.ps1 -Stack         # only bring up the Docker data stack + seed
+   ./run.ps1 -Worker        # also start the Arq workers (BE2 + legal)
    ./run.ps1 -Stop          # stop everything this script started (by port)
 
- Combine flags freely, e.g.:  ./run.ps1 -Install -Stack -Worker
+ Combine flags freely, e.g.:  ./run.ps1 -Install -Stack -Worker -Backend
 
  Services / URLs:
    Backend  BE3 API   http://localhost:8000   (docs: /docs)
    Backend  BE2 gate  http://localhost:8002
    Frontend Admin      http://localhost:5173/admin/
    Frontend Citizen    http://localhost:5174/citizen/
- Requires (not started here): Ollama on :11434 with models `bge-m3` + the chat model.
+ Login (seeded): admin@local / admin123  |  citizen@local / citizen123
+ External dep (not started here): Ollama on :11434 with model bge-m3 for embeddings.
 =====================================================================
 #>
 [CmdletBinding()]
@@ -42,10 +45,39 @@ $DataCompose= Join-Path $Root 'Data/docker-compose.data.yml'
 $DataEnv    = Join-Path $Root 'Data/.env'
 $VenvPy     = Join-Path $BackendDir '.venv/Scripts/python.exe'
 
-# If neither -Backend nor -Frontend is given, run both.
-if (-not $Backend -and -not $Frontend) { $Backend = $true; $Frontend = $true }
+# ---- Flag resolution -------------------------------------------------
+# No flags at all => a complete run of the entire system in one command.
+$NoFlags = -not ($Backend -or $Frontend -or $Stack -or $Worker -or $Install -or $Stop)
+if ($NoFlags) {
+    $Stack = $true; $Worker = $true; $Backend = $true; $Frontend = $true
+    # First run convenience: install frontend deps if they're missing.
+    if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) { $Install = $true }
+}
+elseif (-not $Stop -and -not $Backend -and -not $Frontend) {
+    # A partial invocation (e.g. only -Stack/-Worker) still implies starting the app servers.
+    $Backend = $true; $Frontend = $true
+}
 
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
+function Write-Warn($msg) { Write-Host "   [!] $msg" -ForegroundColor Yellow }
+
+function Import-DotEnv($path) {
+    # Load KEY=VALUE lines into this process env so the seed step + docker compose share creds.
+    if (-not (Test-Path $path)) { return }
+    foreach ($line in Get-Content $path) {
+        $t = $line.Trim()
+        if (-not $t -or $t.StartsWith('#') -or ($t -notmatch '=')) { continue }
+        $k, $v = $t.Split('=', 2)
+        [System.Environment]::SetEnvironmentVariable($k.Trim(), $v.Trim().Trim('"').Trim("'"))
+    }
+}
+
+function Test-TcpPort([string]$TargetHost, [int]$Port) {
+    try {
+        $c = New-Object Net.Sockets.TcpClient
+        $c.Connect($TargetHost, $Port); $c.Close(); return $true
+    } catch { return $false }
+}
 
 function Stop-ByPort([int[]]$Ports) {
     # Tree-kill (/T) the process holding each port so uvicorn --reload watchers and their
@@ -64,7 +96,6 @@ function Stop-ByPort([int[]]$Ports) {
 function Resolve-Python {
     # Pick an interpreter that can actually import uvicorn: prefer the project venv, else fall back
     # to the global `python` on PATH. Returns $null if neither works (tells the user to -Install).
-    # Local ErrorActionPreference + *>$null keep a failing probe from printing a Python traceback.
     $ErrorActionPreference = 'SilentlyContinue'
     if (Test-Path $VenvPy) {
         try { & $VenvPy -c "import uvicorn" *>$null } catch {}
@@ -75,6 +106,46 @@ function Resolve-Python {
         if ($LASTEXITCODE -eq 0) { return 'python' }
     }
     return $null
+}
+
+function Wait-ForPostgres([int]$TimeoutSec = 90) {
+    $pgUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { 'app_be_rw' }
+    $pgDb   = if ($env:POSTGRES_DB)   { $env:POSTGRES_DB }   else { 'legal_kg' }
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $ErrorActionPreference = 'SilentlyContinue'
+        docker exec legal_postgres pg_isready -U $pgUser -d $pgDb *>$null
+        if ($LASTEXITCODE -eq 0) { return $true }
+        Start-Sleep -Seconds 3
+    }
+    return $false
+}
+
+function Wait-ForNeo4j([int]$TimeoutSec = 120) {
+    $pw = if ($env:NEO4J_PASSWORD) { $env:NEO4J_PASSWORD } else { 'change_me_neo4j' }
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $ErrorActionPreference = 'SilentlyContinue'
+        "RETURN 1;" | docker exec -i legal_neo4j cypher-shell -u neo4j -p $pw *>$null
+        if ($LASTEXITCODE -eq 0) { return $true }
+        Start-Sleep -Seconds 4
+    }
+    return $false
+}
+
+function Test-BackendPrereqs {
+    # Non-fatal preflight so failures are obvious instead of silent 500s / broken login.
+    if (-not (Test-TcpPort 'localhost' 5432)) {
+        Write-Warn 'Postgres :5432 not running - login and data will fail. Run: ./run.ps1 -Stack'
+    }
+    if (-not (Test-TcpPort 'localhost' 11434)) {
+        Write-Warn 'Ollama :11434 not running - embeddings (bge-m3) will fail; QA/ingest cannot build vectors.'
+    } else {
+        try {
+            $tags = Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 4
+            if (-not ($tags.models.name -match 'bge-m3')) { Write-Warn 'Ollama missing model bge-m3 - run: ollama pull bge-m3' }
+        } catch {}
+    }
 }
 
 function Start-InWindow($title, $workdir, $command) {
@@ -114,13 +185,21 @@ if ($Install) {
 
 # --------------------------------------------------------- DATA STACK
 if ($Stack) {
+    # Share Data/.env creds with the seed step (and any docker exec below).
+    Import-DotEnv $DataEnv
+
     Write-Step 'Docker data stack: up -d (postgres, neo4j, qdrant, redis, minio)'
     docker compose -f $DataCompose --env-file $DataEnv up -d
-    Write-Host '   waiting 8s for containers to become healthy...' -ForegroundColor DarkGray
-    Start-Sleep -Seconds 8
+
+    Write-Step 'Waiting for Postgres + Neo4j to accept connections'
+    if (Wait-ForPostgres) { Write-Host '   Postgres ready.' -ForegroundColor Green }
+    else { Write-Warn 'Postgres not ready in time - seeding may fail.' }
+    if (Wait-ForNeo4j)    { Write-Host '   Neo4j ready.' -ForegroundColor Green }
+    else { Write-Warn 'Neo4j not ready in time - graph seed may fail.' }
+
     $seed = Join-Path $Root 'Data/seed/load_seed.ps1'
     if (Test-Path $seed) {
-        Write-Step 'Seeding data stack'
+        Write-Step 'Seeding data stack (constraints, sample documents, users, Qdrant collections)'
         powershell -ExecutionPolicy Bypass -File $seed
     }
 }
@@ -134,6 +213,8 @@ if ($Backend) {
         return
     }
     Write-Host "   using interpreter: $Py" -ForegroundColor DarkGray
+    Test-BackendPrereqs
+
     Write-Step 'Backend: freeing ports 8000 / 8002'
     Stop-ByPort @(8000, 8002)
     Start-Sleep -Seconds 1
@@ -169,7 +250,7 @@ Write-Host "`n==================================================================
 Write-Host ' System starting. Open:' -ForegroundColor Cyan
 if ($Backend)  { Write-Host '   BE3 API      http://localhost:8000/docs' }
 if ($Backend)  { Write-Host '   BE2 gateway  http://localhost:8002/health' }
-if ($Frontend) { Write-Host '   Admin        http://localhost:5173/admin/' }
+if ($Frontend) { Write-Host '   Admin        http://localhost:5173/admin/   (admin@local / admin123)' }
 if ($Frontend) { Write-Host '   Citizen      http://localhost:5174/citizen/' }
 Write-Host ' Stop all with:  ./run.ps1 -Stop' -ForegroundColor DarkGray
 Write-Host "=====================================================================`n" -ForegroundColor Cyan
