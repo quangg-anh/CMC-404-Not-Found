@@ -19,24 +19,27 @@ Dự án cung cấp hai phân hệ (Portal) phục vụ hai nhóm đối tượn
 
 ---
 
-## 🏗️ Phân hệ Hệ thống
+## 🌐 Giao diện Web & Phân hệ Hệ thống
+
+Hệ thống LexSocial AI bao gồm hai giao diện web chính được tối ưu hóa cho trải nghiệm người dùng:
 
 ### 1️⃣ Phân hệ Admin Dashboard
 *Dành cho cơ quan nhà nước, cán bộ pháp chế, giám sát truyền thông, quản trị dữ liệu.*
 
+- Cung cấp bộ công cụ mạnh mẽ để cán bộ pháp chế quản lý kho dữ liệu luật, theo dõi biểu đồ thống kê từ mạng xã hội (tích hợp Nivo và Vis-network để trực quan hóa Đồ thị Tri thức).
 - **Số hóa văn bản pháp luật**: Tải lên PDF/HTML, tự động bóc tách cấu trúc (Điều, Khoản, Điểm) bằng NLP, lưu vào Neo4j và Qdrant.
 - **Theo dõi phiên bản (Version Diff)**: Tìm điểm khác biệt giữa các phiên bản luật, tự động tạo diff và ghi chú.
 - **Giám sát dư luận (Social Listening)**: Thu thập dữ liệu từ mạng xã hội, phân loại chủ đề (Topic Classification), và đối chiếu mức độ khớp với luật hiện hành (NLI).
-- **Cảnh báo rủi ro**: Đánh giá và gắn nhãn rủi ro tin giả/hiểu lầm (`khớp / mâu thuẫn / không rõ`).
+- **Cảnh báo rủi ro**: Xử lý các cảnh báo rủi ro theo thời gian thực (gắn nhãn `khớp / mâu thuẫn / không rõ`).
 - **Gợi ý & Xuất bản**: Duyệt đề xuất đính chính truyền thông, và xuất bản nội dung (Publish) ra công chúng.
 
 ### 2️⃣ Phân hệ Citizen Portal
 *Dành cho người dân tra cứu.*
 
+- Giao diện thiết kế tối giản, dễ thao tác, ưu tiên tính dễ đọc và truy cập nhanh.
 - **Tra cứu công khai**: Tìm kiếm văn bản luật nhanh chóng, trực quan, không yêu cầu đăng nhập.
 - **Tóm tắt luật thông minh**: Đọc các bản tin pháp luật được AI tóm tắt ngắn gọn, dễ hiểu.
-- **Hỏi-đáp AI (RAG QA)**: Đặt câu hỏi pháp lý và nhận câu trả lời từ AI. 
-  *Nguyên tắc tối thượng:* **Citation-first (Trích dẫn là số 1)** - Mọi câu trả lời đều trích dẫn chính xác đến từng Điều, Khoản, Điểm gốc của văn bản.
+- **Hỏi-đáp AI (RAG QA)**: Đặt câu hỏi pháp lý và nhận câu trả lời từ AI. Mọi kết quả hỏi đáp đều được trình bày rõ ràng, nhấn mạnh vào nguồn trích dẫn gốc **(Citation-first)** giúp người dân dễ dàng xác thực độ tin cậy của câu trả lời.
 
 ---
 
@@ -124,14 +127,6 @@ Sau khi khởi chạy thành công, bạn có thể truy cập qua các địa c
   cd Backend
   pytest -vv
   ```
-
----
-
-## 🌐 Giao diện Web (Frontend)
-
-Hệ thống LexSocial AI bao gồm hai giao diện web chính được tối ưu hóa cho trải nghiệm người dùng:
-- **Admin Dashboard**: Cung cấp bộ công cụ mạnh mẽ để cán bộ pháp chế quản lý kho dữ liệu luật, theo dõi biểu đồ thống kê từ mạng xã hội (tích hợp Nivo và Vis-network để trực quan hóa Đồ thị Tri thức), và xử lý các cảnh báo rủi ro theo thời gian thực.
-- **Citizen Portal**: Giao diện hướng tới người dân với thiết kế tối giản, dễ thao tác. Mọi kết quả hỏi đáp đều được trình bày rõ ràng, nhấn mạnh vào nguồn trích dẫn gốc (Citation-first) giúp người dân dễ dàng xác thực độ tin cậy của câu trả lời từ AI.
 
 ---
 
