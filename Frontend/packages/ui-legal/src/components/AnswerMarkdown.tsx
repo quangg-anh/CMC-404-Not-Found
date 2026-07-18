@@ -1,18 +1,23 @@
 import React from 'react';
-import { ListChecks } from '@phosphor-icons/react';
 
 /** Insert newlines before section labels / bullets when the model smashes them onto one line. */
 export function normalizeAnswerMarkdown(content: string): string {
   let text = (content || '').replace(/\r\n/g, '\n').trim();
-  text = text.replace(/\s*(\*\*[^*]+?\*\*:)/g, '\n\n$1');
-  text = text.replace(/\s+(-\s+(?:\[[^\]]+\]|[A-Za-zÀ-ỹ]))/g, '\n$1');
-  return text.replace(/^\n+/, '').trim();
+  // BE2 style: **Kết luận ngắn:**  (colon inside the bold markers)
+  text = text.replace(/(?!^)(?=\*\*[^*]{1,80}?:\*\*)/g, '\n\n');
+  // Alternate: **Kết luận ngắn**:  (colon after closing **)
+  text = text.replace(/(?!^)(?=\*\*[^*]{1,80}\*\*\s*:)/g, '\n\n');
+  // Smash-fix bullets: "...text. - [id] ..."
+  text = text.replace(/\s+(-\s+)/g, '\n$1');
+  return text.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/** Turn every **bold** span into <strong>; leaves surrounding text untouched. */
 export function renderInlineMarkdown(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  if (!text) return null;
+  const parts = text.split(/(\*\*[^*]+?\*\*)/g);
   return parts.map((part, idx) => {
-    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+    if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
       return (
         <strong key={idx} className="font-bold text-slate-900">
           {part.slice(2, -2)}
@@ -32,20 +37,35 @@ type AnswerMarkdownProps = {
 
 /**
  * Renders LLM answers that use light Markdown (**bold**, - bullets, --- rules).
- * Does not pull in a full Markdown library — only the patterns BE2 actually emits.
+ * Used by both citizen Ask and admin QA so ** markers never show raw.
  */
 export function AnswerMarkdown({ content, className, density = 'comfortable' }: AnswerMarkdownProps) {
   const normalized = normalizeAnswerMarkdown(content);
   const lines = normalized.split('\n').map((line) => line.trim()).filter(Boolean);
+
+  const bodyClass =
+    density === 'compact'
+      ? 'text-sm leading-7 text-slate-700'
+      : 'text-[15px] sm:text-[16px] leading-relaxed text-slate-700';
+  const bulletTextClass =
+    density === 'compact'
+      ? 'text-sm leading-6 text-slate-700'
+      : 'text-[15px] leading-relaxed text-slate-700';
+
+  if (lines.length === 0) {
+    return null;
+  }
+
   const hasStructure = lines.some(
     (line) => line.startsWith('- ') || line.includes('**') || line === '---',
   );
 
-  const bodyClass = density === 'compact' ? 'text-sm leading-7 text-slate-700' : 'text-[15px] sm:text-[16px] leading-relaxed text-slate-700';
-  const bulletTextClass = density === 'compact' ? 'text-sm leading-6 text-slate-700' : 'text-[15px] leading-relaxed text-slate-700';
-
   if (!hasStructure) {
-    return <p className={`${bodyClass} whitespace-pre-wrap ${className || ''}`.trim()}>{normalized}</p>;
+    return (
+      <p className={`${bodyClass} whitespace-pre-wrap ${className || ''}`.trim()}>
+        {normalized}
+      </p>
+    );
   }
 
   return (
@@ -72,15 +92,26 @@ export function AnswerMarkdown({ content, className, density = 'comfortable' }: 
           );
         }
 
-        // **Heading:** optional body on the same line
-        const headingMatch = line.match(/^\*\*([^*]+?)\*\*:?\s*(.*)$/);
-        if (headingMatch && !headingMatch[2].includes('**')) {
-          const title = headingMatch[1].replace(/:$/, '').trim();
-          const rest = headingMatch[2].trim();
+        // **Heading:** rest…  OR  **Heading**: rest…
+        const sectionMatch =
+          line.match(/^\*\*([^*]+?):\*\*\s*(.*)$/) ||
+          line.match(/^\*\*([^*]+?)\*\*\s*:\s*(.*)$/);
+
+        if (sectionMatch) {
+          const title = sectionMatch[1].replace(/:$/, '').trim();
+          const rest = (sectionMatch[2] || '').trim();
+          // If the remainder still has another section header, render inline (normalize should have split).
+          if (rest.includes('**:') || /\*\*[^*]+?:\*\*/.test(rest)) {
+            return (
+              <p key={idx} className={bodyClass}>
+                {renderInlineMarkdown(line)}
+              </p>
+            );
+          }
           return (
             <div key={idx} className="space-y-2">
               <div className="mt-1 flex items-center gap-2 rounded-2xl bg-blue-50 px-4 py-2.5 text-blue-900 ring-1 ring-blue-100 first:mt-0">
-                <ListChecks size={17} weight="fill" className="shrink-0 text-blue-600" />
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" aria-hidden />
                 <h3 className="text-sm font-black uppercase tracking-wide">{title}</h3>
               </div>
               {rest ? <p className={bodyClass}>{renderInlineMarkdown(rest)}</p> : null}
