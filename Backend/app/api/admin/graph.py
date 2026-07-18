@@ -9,6 +9,15 @@ from app.services.graph_query import GraphQueryService
 
 router = APIRouter(tags=["Admin Graph"], dependencies=[Depends(require_admin())])
 
+@router.get("/graph/seeds", summary="Gợi ý node gốc để khám phá đồ thị")
+async def get_graph_seed_suggestions(
+    limit: int = Query(default=20, ge=1, le=50, description="Số seed gợi ý"),
+    driver: Any = Depends(get_neo4j_driver),
+) -> dict[str, Any]:
+    service = GraphQueryService(driver=driver)
+    res = await service.seed_suggestions(limit=limit)
+    return success_response(data=res, request_id=get_request_id())
+
 
 @router.get("/graph/neighborhood", summary="Khám phá láng giềng đồ thị (Graph Neighborhood Explorer)")
 async def get_graph_neighborhood(

@@ -153,6 +153,17 @@ async def get_van_ban(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Văn bản {id} không tồn tại")
     return success_response(data=item, request_id=get_request_id())
 
+@router.delete("/legal/van-ban/{id:path}", summary="Xóa văn bản đã số hóa")
+async def delete_van_ban(
+    id: str,
+    pool: Any = Depends(get_db_pool),
+    driver: Any = Depends(get_neo4j_driver),
+    qdrant: Any = Depends(get_qdrant_client),
+) -> dict[str, Any]:
+    facade = LegalDiffFacade(pool=pool, neo4j_driver=driver, qdrant=qdrant)
+    res = await facade.delete_van_ban(id)
+    return success_response(data=res, request_id=get_request_id())
+
 
 @router.get("/legal/van-ban/{id}/files", summary="Danh sách file đính kèm văn bản")
 async def list_van_ban_files(

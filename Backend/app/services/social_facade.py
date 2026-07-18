@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 import httpx
 from app.adapters.neo4j_social import Neo4jSocialRepository
 from app.adapters.postgres_content import PostgresContentRepository
+from app.config import get_config
+from app.pipelines.social.collectors import FacebookGraphCollector, ForumFeedCollector, YouTubeDataCollector
+from app.pipelines.social.ingest import SocialIngestService
 
 
 class SocialAlertFacade:
@@ -45,12 +48,67 @@ class SocialAlertFacade:
             "message": "Social post ingestion task submitted into queue.",
         }
 
+    async def crawl_social(
+        self,
+        *,
+        topics: list[str] | None = None,
+        platforms: list[str] | None = None,
+        limit_per_topic: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Collect real public social data from configured collectors and optionally ingest to Neo4j."""
+        cfg = get_config()
+        active_topics = [t.strip() for t in (topics or cfg.social_monitor_topics) if t and t.strip()]
+        active_platforms = {p.strip().lower() for p in (platforms or ["youtube"]) if p and p.strip()}
+        if not active_topics:
+            return {"status": "failed", "message": "Chưa cấu hình chủ đề crawl.", "collected": 0, "ingested": 0, "items": []}
+
+        collectors: list[Any] = []
+        if "youtube" in active_platforms:
+            collectors.append(YouTubeDataCollector(cfg))
+        if "facebook" in active_platforms:
+            collectors.append(FacebookGraphCollector(cfg))
+        if "forum" in active_platforms:
+            collectors.append(ForumFeedCollector(cfg))
+        if not collectors:
+            return {"status": "failed", "message": "Chưa chọn nguồn crawl hợp lệ.", "collected": 0, "ingested": 0, "items": []}
+
+        collected: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        for collector in collectors:
+            provider = collector.__class__.__name__.replace("DataCollector", "").replace("GraphCollector", "").replace("FeedCollector", "").lower()
+            try:
+                collected.extend(await collector.collect(active_topics, limit_per_topic=limit_per_topic))
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"platform": provider, "message": str(exc)})
+
+        ingested_items: list[dict[str, Any]] = []
+        if not dry_run and self.neo_repo:
+            ingest_service = SocialIngestService(self.neo_repo, cfg)
+            for payload in collected:
+                try:
+                    post = await ingest_service.ingest(payload)
+                    ingested_items.append(post.model_dump())
+                except Exception as exc:  # noqa: BLE001
+                    errors.append({"platform": payload.get("platform"), "external_id": payload.get("external_id"), "message": str(exc)})
+
+        return {
+            "status": "success" if collected or not errors else "failed",
+            "topics": active_topics,
+            "platforms": sorted(active_platforms),
+            "dry_run": dry_run,
+            "collected": len(collected),
+            "ingested": len(ingested_items),
+            "items": ingested_items if ingested_items else collected[:100],
+            "errors": errors,
+        }
+
     async def list_topics(self) -> list[dict[str, Any]]:
         """List current legal topics monitored on social channels from Neo4j."""
         items: list[dict[str, Any]] = []
         if self.driver and hasattr(self.driver, "session"):
             try:
-                query = "MATCH (t:ChuDe) RETURN t ORDER BY t.post_count DESC LIMIT 100"
+                query = "MATCH (t:ChuDe) RETURN t ORDER BY coalesce(t.post_count, 0) DESC, t.ten ASC LIMIT 100"
                 async with self.driver.session() as session:
                     res = await session.run(query)
                     async for record in res:
@@ -79,11 +137,14 @@ class SocialAlertFacade:
         items: list[dict[str, Any]] = []
         if self.driver and hasattr(self.driver, "session"):
             try:
-                query = "MATCH (b:BaiDang) RETURN b ORDER BY b.ngay_dang DESC LIMIT 100"
+                query = "MATCH (b:BaiDang) RETURN b ORDER BY coalesce(b.ngay_dang, b.thoi_gian, b.ingested_at) DESC LIMIT 100"
                 async with self.driver.session() as session:
                     res = await session.run(query)
                     async for record in res:
-                        data = dict(record["b"])
+                        data = self._json_safe(dict(record["b"]))
+                        data["chu_de"] = data.get("chu_de") or data.get("source_topic")
+                        data["ngay_dang"] = data.get("ngay_dang") or data.get("thoi_gian") or data.get("ingested_at")
+                        data["tac_gia"] = data.get("comment_author_name") or data.get("tac_gia") or data.get("tac_gia_hash")
                         if topic_slug and data.get("chu_de") != topic_slug:
                             continue
                         if needs_review is not None and data.get("needs_review", False) != needs_review:
@@ -107,6 +168,18 @@ class SocialAlertFacade:
                 pass
 
         return items
+
+    @staticmethod
+    def _json_safe(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: SocialAlertFacade._json_safe(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [SocialAlertFacade._json_safe(v) for v in value]
+        if hasattr(value, "iso_format"):
+            return value.iso_format()
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return value
 
     @staticmethod
     def _alert_from_row(row: dict[str, Any]) -> dict[str, Any]:

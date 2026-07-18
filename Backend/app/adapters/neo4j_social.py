@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Any
 from uuid import uuid5, NAMESPACE_URL
 from app.schemas import LinkCandidate, NliResult, SocialPost, TopicResult
@@ -18,12 +19,48 @@ class Neo4jSocialRepository:
         MERGE (b:BaiDang {platform: $platform, external_id: $external_id})
         SET b.noi_dung = $noi_dung,
             b.tac_gia_hash = $tac_gia_hash,
+            b.tac_gia = $tac_gia,
             b.url = $url,
+            b.chu_de = $chu_de,
+            b.source_query = $source_query,
+            b.youtube_kind = $youtube_kind,
+            b.comment_id = $comment_id,
+            b.comment_author_name = $comment_author_name,
+            b.comment_text = $comment_text,
+            b.comment_url = $comment_url,
+            b.video_title = $video_title,
+            b.video_url = $video_url,
             b.thoi_gian = datetime($thoi_gian),
-            b.ingested_at = datetime($ingested_at)
+            b.ngay_dang = datetime($thoi_gian),
+            b.ingested_at = datetime($ingested_at),
+            b.source_metadata_json = $source_metadata_json
         RETURN b.platform + ':' + b.external_id AS bai_dang_id
         """
-        params = {"platform": post.platform, "external_id": post.external_id, "noi_dung": post.noi_dung, "tac_gia_hash": post.tac_gia_hash, "url": post.url, "thoi_gian": post.thoi_gian.isoformat(), "ingested_at": post.ingested_at.isoformat()}
+        meta = post.source_metadata or {}
+        comment_text = None
+        if meta.get("youtube_kind") == "comment":
+            parts = [part.strip() for part in post.noi_dung.split("\n\n", 1)]
+            comment_text = parts[1] if len(parts) == 2 else post.noi_dung
+        params = {
+            "platform": post.platform,
+            "external_id": post.external_id,
+            "noi_dung": post.noi_dung,
+            "tac_gia_hash": post.tac_gia_hash,
+            "tac_gia": meta.get("comment_author_name") or meta.get("author_name") or meta.get("video_channel_title"),
+            "url": post.url,
+            "chu_de": meta.get("source_topic"),
+            "source_query": meta.get("source_query"),
+            "youtube_kind": meta.get("youtube_kind"),
+            "comment_id": meta.get("comment_id"),
+            "comment_author_name": meta.get("comment_author_name"),
+            "comment_text": comment_text,
+            "comment_url": meta.get("comment_url"),
+            "video_title": meta.get("video_title"),
+            "video_url": meta.get("video_url"),
+            "source_metadata_json": json.dumps(meta, ensure_ascii=False, default=str),
+            "thoi_gian": post.thoi_gian.isoformat(),
+            "ingested_at": post.ingested_at.isoformat(),
+        }
         async with self.driver.session() as session:
             result = await session.run(query, **params)
             record = await result.single()
@@ -48,6 +85,7 @@ class Neo4jSocialRepository:
         MATCH (b:BaiDang {platform: $platform, external_id: $external_id})
         MERGE (c:ChuDe {slug: $slug})
         SET c.ten = coalesce(c.ten, $slug)
+        SET b.chu_de = coalesce(b.chu_de, $slug)
         MERGE (b)-[r:THAO_LUAN_VE]->(c)
         SET r.score = $score, r.model = $model, r.status = $status
         """

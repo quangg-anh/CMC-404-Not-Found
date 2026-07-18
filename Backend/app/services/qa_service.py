@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import date
 from typing import Any
 from app.schemas import CandidateKhoan, Citation
@@ -64,6 +65,181 @@ class QAService:
     _KHOAN_ID_RE = re.compile(r"[A-Za-z0-9/.|\-]+::D\d+(?:\.K\d+)?")
     # Document number (số hiệu), e.g. "01/2016/NQ-HDND", "168/2024/NĐ-CP".
     _SO_HIEU_RE = re.compile(r"\d{1,4}/\d{4}/[A-Za-zĐĐđ\-]+")
+
+    @staticmethod
+    def _strip_accents(text: str) -> str:
+        text = re.sub(r"[đĐ]", "d", text or "")
+        return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("utf-8").lower()
+
+    @classmethod
+    def _keyword_queries(cls, question: str) -> list[str]:
+        """Build broad legal-search phrases from a vague user question.
+
+        Users often ask naturally instead of giving exact document numbers. This expands the query
+        into topic phrases and meaningful n-grams that can match article titles, provision text and
+        document metadata across many legal topics, not only support-amount questions.
+        """
+        raw = (question or "").strip()
+        norm = cls._strip_accents(raw)
+        phrases: list[str] = []
+
+        phrase_map = [
+            ("muc ho tro", "mức hỗ trợ"),
+            ("muc ho tro phuc vu", "mức hỗ trợ phục vụ"),
+            ("ho tro phuc vu", "hỗ trợ phục vụ"),
+            ("chinh sach ho tro", "chính sách hỗ trợ"),
+            ("dieu kien", "điều kiện"),
+            ("doi tuong", "đối tượng"),
+            ("thu tuc", "thủ tục"),
+            ("ho so", "hồ sơ"),
+            ("hoan thue", "hoàn thuế"),
+            ("mien thue", "miễn thuế"),
+            ("giam thue", "giảm thuế"),
+            ("khai thue", "khai thuế"),
+            ("quyet toan thue", "quyết toán thuế"),
+            ("thoi han", "thời hạn"),
+            ("thoi diem", "thời điểm"),
+            ("muc phat", "mức phạt"),
+            ("xu phat", "xử phạt"),
+            ("tham quyen", "thẩm quyền"),
+            ("trach nhiem", "trách nhiệm"),
+            ("nghia vu", "nghĩa vụ"),
+            ("quyen loi", "quyền lợi"),
+            ("tien/thang", "đồng/tháng"),
+            ("dong/thang", "đồng/tháng"),
+            ("bao nhieu", "mức"),
+            ("nghi dinh", "nghị định"),
+            ("quyet dinh", "quyết định"),
+        ]
+        for needle, phrase in phrase_map:
+            if needle in norm and phrase not in phrases:
+                phrases.append(phrase)
+
+        # Keep meaningful user tokens and n-grams too, so three unrelated topics can still retrieve
+        # matching Điều/Khoản titles without per-topic hard-coding.
+        stop = {
+            "cua", "cho", "toi", "hoi", "la", "ve", "thi", "muc", "bao", "nhieu", "khong", "duoc", "quy", "dinh",
+            "luat", "nghi", "dinh", "quyet", "thong", "tu", "van", "ban", "phap", "ly", "can", "cu", "nao", "gi",
+            "nhu", "the", "neu", "thi", "hay", "noi", "ro", "lien", "quan", "chinh", "sach",
+        }
+        tokens = re.findall(r"[\wÀ-ỹĐđ]+", raw.lower())
+        meaningful: list[str] = []
+        for token in tokens:
+            plain = cls._strip_accents(token)
+            if len(plain) >= 4 and plain not in stop:
+                meaningful.append(token)
+            if len(plain) >= 4 and plain not in stop and token not in phrases:
+                phrases.append(token)
+
+        for n in (4, 3, 2):
+            for i in range(0, max(0, len(meaningful) - n + 1)):
+                phrase = " ".join(meaningful[i:i + n]).strip()
+                if phrase and phrase not in phrases:
+                    phrases.append(phrase)
+
+        if raw and raw[:80] not in phrases:
+            phrases.append(raw[:80])
+        return phrases[:20]
+
+    @classmethod
+    def _required_keyword_queries(cls, question: str) -> list[str]:
+        """Return topic-specific terms that must match to avoid generic false positives.
+
+        Example: "hồ sơ thủ tục hoàn thuế" must match "hoàn"/"thuế"/"hoàn thuế", not only generic
+        words like "hồ sơ" or "thủ tục" from an unrelated aircraft-registration form.
+        """
+        raw = (question or "").strip().lower()
+        stop = {
+            "hồ", "sơ", "thủ", "tục", "điều", "kiện", "đối", "tượng", "thời", "hạn", "mức", "phạt",
+            "xử", "thẩm", "quyền", "trách", "nhiệm", "nghĩa", "vụ", "quyền", "lợi", "cần", "những",
+            "gì", "là", "theo", "quy", "định", "hiện", "hành", "của", "cho", "về", "liên", "quan",
+            "nghị", "quyết", "thông", "văn", "bản", "pháp", "luật", "chính", "sách", "bao", "nhiêu",
+        }
+        tokens = re.findall(r"[\wÀ-ỹĐđ]+", raw)
+        topic_tokens: list[str] = []
+        for token in tokens:
+            plain = cls._strip_accents(token)
+            if len(plain) >= 4 and token not in stop and plain not in {cls._strip_accents(s) for s in stop}:
+                topic_tokens.append(token)
+
+        phrases: list[str] = []
+        for n in (3, 2):
+            for i in range(0, max(0, len(topic_tokens) - n + 1)):
+                phrase = " ".join(topic_tokens[i:i + n]).strip()
+                if phrase and phrase not in phrases:
+                    phrases.append(phrase)
+        for token in topic_tokens:
+            if token not in phrases:
+                phrases.append(token)
+        return phrases[:10]
+
+    @staticmethod
+    def _retrieval_text_ok(text: str) -> bool:
+        """Drop very noisy OCR/form fragments that tend to poison answers."""
+        txt = (text or "").strip()
+        if len(txt) < 20:
+            return False
+        # Legal forms often contain placeholder dotted lines like "................".
+        # They are not useful answer evidence and make citations look broken.
+        if re.search(r"\.{8,}|…{3,}|-{8,}|_{8,}", txt):
+            return False
+        if txt.count(".") / max(len(txt), 1) > 0.08:
+            return False
+        if len(txt) > 1200 and txt.count(".") > 80:
+            return False
+        letters = len(re.findall(r"[A-Za-zÀ-ỹĐđ]", txt))
+        weird = len(re.findall(r"[^\w\sÀ-ỹĐđ.,;:()/%\-–—]", txt))
+        return letters >= 12 and weird / max(len(txt), 1) < 0.08
+
+    @staticmethod
+    def _doc_key(khoan_id: str) -> str:
+        """Normalize document key from a khoan_id prefix."""
+        prefix = (khoan_id or "").split("::", 1)[0].strip()
+        return prefix.rstrip(" .")
+
+    @classmethod
+    def _prefer_best_document(cls, candidates: list[CandidateKhoan], question: str) -> list[CandidateKhoan]:
+        """Avoid answering once per unrelated document for one question.
+
+        For vague single-topic questions, keep the highest-scoring document cluster. This prevents
+        generic terms like "hồ sơ"/"thủ tục" from mixing 78.TT.BCA with 80/2021/TT-BTC.
+        """
+        if len(candidates) <= 3:
+            return candidates
+        if cls._KHOAN_ID_RE.search(question) or cls._SO_HIEU_RE.search(question):
+            return candidates
+
+        groups: dict[str, list[CandidateKhoan]] = {}
+        for cand in candidates:
+            key = cls._doc_key(cand.khoan_id)
+            if not key:
+                continue
+            groups.setdefault(key, []).append(cand)
+        if len(groups) <= 1:
+            return candidates[:8]
+
+        norm_question = cls._strip_accents(question)
+        required = [cls._strip_accents(x) for x in cls._required_keyword_queries(question)]
+
+        def group_score(item: tuple[str, list[CandidateKhoan]]) -> tuple[float, int, float]:
+            key, items = item
+            doc_text = cls._strip_accents(key + " " + " ".join(c.noi_dung for c in items[:8]))
+            required_hits = sum(1 for req in required if req and req in doc_text)
+            exact_doc_bonus = 3 if cls._strip_accents(key) in norm_question else 0
+            return (
+                float(required_hits * 5 + exact_doc_bonus) + sum(float(c.score or 0.0) for c in items[:8]),
+                len(items),
+                max(float(c.score or 0.0) for c in items),
+            )
+
+        best_key, best_items = max(groups.items(), key=group_score)
+        best_score = group_score((best_key, best_items))[0]
+        other_score = max((group_score(item)[0] for item in groups.items() if item[0] != best_key), default=0.0)
+
+        # If one document clearly fits best, answer from that document only.
+        if best_score >= other_score + 2:
+            return sorted(best_items, key=lambda c: c.score, reverse=True)[:8]
+        return sorted(candidates, key=lambda c: c.score, reverse=True)[:8]
 
     async def _direct_lookup(self, question: str, audience: str) -> list[CandidateKhoan]:
         """Fetch Khoản referenced EXPLICITLY by id/số hiệu in the question, straight from Neo4j.
@@ -136,27 +312,62 @@ class QAService:
             except Exception:
                 pass
 
-        if not candidates and self.driver and hasattr(self.driver, "session"):
+        if self.driver and hasattr(self.driver, "session"):
             try:
-                # Graph keyword search fallback when Qdrant is unreachable
+                # Broad graph keyword search: look across provision text, article titles and document
+                # metadata. This lets vague questions find provisions like "Điều 3. Mức hỗ trợ phục vụ"
+                # without requiring the user to type the exact decree/decision number.
                 query = """
-                MATCH (k:Khoan)
-                WHERE toLower(k.noi_dung) CONTAINS toLower($kw)
-                RETURN k.khoan_id AS kid, k.noi_dung AS nd
-                LIMIT 5
+                MATCH (v:VanBanPhapLuat)-[:CO_DIEU]->(d:Dieu)-[:CO_KHOAN]->(k:Khoan)
+                WHERE ($audience <> 'citizen' OR coalesce(k.visibility, 'public') = 'public')
+                  AND any(kw IN $keywords WHERE
+                    toLower(coalesce(k.noi_dung, '')) CONTAINS toLower(kw)
+                    OR toLower(coalesce(d.tieu_de, '')) CONTAINS toLower(kw)
+                    OR toLower(coalesce(v.ten, '')) CONTAINS toLower(kw)
+                    OR toLower(coalesce(v.so_hieu, '')) CONTAINS toLower(kw)
+                  )
+                                    AND (size($required_keywords) = 0 OR any(req IN $required_keywords WHERE
+                                        toLower(coalesce(k.noi_dung, '')) CONTAINS toLower(req)
+                                        OR toLower(coalesce(d.tieu_de, '')) CONTAINS toLower(req)
+                                        OR toLower(coalesce(v.ten, '')) CONTAINS toLower(req)
+                                        OR toLower(coalesce(v.so_hieu, '')) CONTAINS toLower(req)
+                                    ))
+                WITH k, d, v,
+                     size([kw IN $keywords WHERE toLower(coalesce(k.noi_dung, '')) CONTAINS toLower(kw)
+                       OR toLower(coalesce(d.tieu_de, '')) CONTAINS toLower(kw)
+                       OR toLower(coalesce(v.ten, '')) CONTAINS toLower(kw)
+                       OR toLower(coalesce(v.so_hieu, '')) CONTAINS toLower(kw)]) +
+                     (2 * size([req IN $required_keywords WHERE toLower(coalesce(k.noi_dung, '')) CONTAINS toLower(req)
+                       OR toLower(coalesce(d.tieu_de, '')) CONTAINS toLower(req)
+                       OR toLower(coalesce(v.ten, '')) CONTAINS toLower(req)
+                       OR toLower(coalesce(v.so_hieu, '')) CONTAINS toLower(req)])) AS hits
+                RETURN k.khoan_id AS kid, k.noi_dung AS nd, hits
+                ORDER BY hits DESC
+                LIMIT 12
                 """
                 async with self.driver.session() as session:
-                    res = await session.run(query, kw=question[:30])
+                    res = await session.run(
+                        query,
+                        keywords=self._keyword_queries(question),
+                        required_keywords=self._required_keyword_queries(question),
+                        audience=audience,
+                    )
                     async for record in res:
+                        kid = str(record["kid"] or "")
+                        text = str(record["nd"] or "")
+                        if not kid or kid in seen_ids or not self._retrieval_text_ok(text):
+                            continue
+                        seen_ids.add(kid)
                         candidates.append(CandidateKhoan(
-                            khoan_id=str(record["kid"] or ""),
-                            noi_dung=str(record["nd"] or ""),
-                            score=0.85,
+                            khoan_id=kid,
+                            noi_dung=text,
+                            score=min(0.99, 0.75 + (float(record.get("hits") or 1) * 0.03)),
                         ))
             except Exception:
                 pass
 
-        return [c for c in candidates if c.khoan_id and c.noi_dung]
+        cleaned = [c for c in candidates if c.khoan_id and c.noi_dung and self._retrieval_text_ok(c.noi_dung)]
+        return self._prefer_best_document(cleaned, question)
 
     async def _time_travel(
         self, candidates: list[CandidateKhoan], as_of: str
@@ -331,6 +542,74 @@ class QAService:
             "refuse_reason": [reason],
         }
 
+    async def _unverified_ai_answer(
+        self, question: str, audience: str, as_of: str, notices: list[dict[str, Any]], reason: str
+    ) -> dict[str, Any]:
+        """Ask BE2 for a non-cited fallback when no legal corpus candidates exist.
+
+        This path never fabricates citations and marks the output as unverified/low confidence.
+        """
+        if not self.router:
+            return {
+                "answer": "Chưa có dữ liệu pháp lý được hệ thống xác thực để trả lời. Vui lòng nạp văn bản pháp luật liên quan hoặc hỏi câu cụ thể hơn.",
+                "citations": [],
+                "confidence": "low",
+                "graph_paths": [],
+                "audience": audience,
+                "as_of": as_of,
+                "notices": notices,
+                "degraded": True,
+                "unverified": True,
+                "refuse_reason": [reason, "BE2 LLMRouter service unavailable."],
+            }
+
+        prompt = (
+            "retrieved_context:\n\n"
+            f"Câu hỏi: {question}\n"
+            "Không có điều khoản pháp luật đã số hóa phù hợp. "
+            "Không được đoán mức tiền, điều, khoản, số luật/nghị định hoặc cơ quan có thẩm quyền. "
+            "Nếu câu hỏi hỏi về mức tiền, thời hạn, điều kiện hưởng, xử phạt hoặc nghĩa vụ cụ thể mà không có căn cứ, "
+            "phải nói rõ chưa thể kết luận số cụ thể. "
+            "Hãy trả lời theo cấu trúc: Trạng thái xác thực; Có thể nói ở mức tham khảo; Cần bổ sung để trả lời chính xác; Cách tra cứu/nạp dữ liệu. "
+            "Bắt buộc nêu rõ câu trả lời chưa có căn cứ pháp lý được hệ thống xác thực, "
+            "không thay thế tư vấn pháp lý chính thức. Không tạo citations."
+        )
+        try:
+            llm_out = await self.router.complete(
+                task="qa",
+                prompt=prompt,
+                schema={"required": ["answer", "citations"]},
+                complexity="high",
+            )
+            answer = str(llm_out.get("answer") or "").strip()
+            if not answer:
+                answer = "Chưa có dữ liệu pháp lý được hệ thống xác thực để trả lời."
+            return {
+                "answer": answer,
+                "citations": [],
+                "confidence": "low",
+                "graph_paths": [],
+                "audience": audience,
+                "as_of": as_of,
+                "notices": notices,
+                "degraded": True,
+                "unverified": True,
+                "refuse_reason": [reason],
+            }
+        except Exception as e:
+            return {
+                "answer": "Chưa có dữ liệu pháp lý được hệ thống xác thực để trả lời. Vui lòng thử lại sau.",
+                "citations": [],
+                "confidence": "low",
+                "graph_paths": [],
+                "audience": audience,
+                "as_of": as_of,
+                "notices": notices,
+                "degraded": True,
+                "unverified": True,
+                "refuse_reason": [reason, f"LLMRouter error: {str(e)}"],
+            }
+
     async def answer(
         self,
         question: str,
@@ -343,20 +622,28 @@ class QAService:
 
         # 1. Retrieve candidates
         candidates = await self.retrieve_candidates(question, audience=audience)
+        had_candidates_before_time_filter = bool(candidates)
         # 1b. Idea 01 — keep only provisions in force at `as_of`; collect change notices.
         candidates, notices = await self._time_travel(candidates, as_of_val)
         if not candidates:
-
-            return {
-                "answer": "Không tìm thấy điều khoản pháp lý nào còn hiệu lực tại thời điểm yêu cầu để trả lời câu hỏi của bạn.",
-                "citations": [],
-                "confidence": "low",
-                "graph_paths": [],
-                "audience": audience,
-                "as_of": as_of_val,
-                "notices": notices,
-                "refuse_reason": ["No legal candidates in force as of the requested date."],
-            }
+            if had_candidates_before_time_filter:
+                return {
+                    "answer": "Không tìm thấy điều khoản pháp lý nào còn hiệu lực tại thời điểm yêu cầu để trả lời câu hỏi của bạn.",
+                    "citations": [],
+                    "confidence": "low",
+                    "graph_paths": [],
+                    "audience": audience,
+                    "as_of": as_of_val,
+                    "notices": notices,
+                    "refuse_reason": ["No legal candidates in force as of the requested date."],
+                }
+            return await self._unverified_ai_answer(
+                question=question,
+                audience=audience,
+                as_of=as_of_val,
+                notices=notices,
+                reason="No legal candidates in force as of the requested date.",
+            )
 
         # 2. Call LLM synthesized answer via BE2 router
         if not self.router:
@@ -378,6 +665,10 @@ class QAService:
             f"{retrieved_context}\n\n"
             f"Câu hỏi: {question}\n"
             "Chỉ trả lời dựa trên retrieved_context ở trên. Tuyệt đối không bịa. "
+            "Xác định chủ đề chính của câu hỏi rồi trích đúng dữ kiện có trong retrieved_context: mức tiền/mức hỗ trợ, "
+            "thời hạn, điều kiện, đối tượng áp dụng, hồ sơ/thủ tục, mức xử phạt, nghĩa vụ, quyền lợi hoặc thẩm quyền nếu câu hỏi cần. "
+            "Luôn nêu điều, khoản và số văn bản từ khoan_id cho từng ý quan trọng. "
+            "Không hỏi lại nếu retrieved_context đã có căn cứ đủ để trả lời; chỉ hỏi lại khi thiếu căn cứ thật sự. "
             "Trả về JSON gồm: answer (string), citations (mảng {khoan_id, quote} trích nguyên văn), "
             "confidence (high|medium|low)."
         )

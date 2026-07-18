@@ -124,8 +124,36 @@ class LegalParser:
         # Bật cờ needs_review nếu văn bản dài mà không bắt được Điều nào 
         # (Dấu hiệu của OCR rác, PDF lệch layout hoặc scan)
         if len(tree) == 0 and len(text.strip()) > 500:
-            logger.warning("Không trích xuất được Điều nào. Khả năng layout lỗi, cần gọi LLM Fallback.")
+            logger.warning("Không trích xuất được Điều nào. Lưu nội dung thật vào Điều 1/Khoản 1 để AI vẫn truy hồi được.")
+            tree.append(
+                {
+                    "loai": "Dieu",
+                    "so": "1",
+                    "tieu_de": "Nội dung văn bản",
+                    "noi_dung": "",
+                    "khoan_list": [
+                        {
+                            "loai": "Khoan",
+                            "so": "1",
+                            "noi_dung": text.strip(),
+                            "diem_list": [],
+                        }
+                    ],
+                }
+            )
             needs_review = True
+
+        for dieu in tree:
+            if not dieu.get("khoan_list") and (dieu.get("noi_dung") or "").strip():
+                dieu["khoan_list"] = [
+                    {
+                        "loai": "Khoan",
+                        "so": "1",
+                        "noi_dung": (dieu.get("noi_dung") or "").strip(),
+                        "diem_list": [],
+                    }
+                ]
+                dieu["noi_dung"] = ""
             
         return tree, needs_review
 

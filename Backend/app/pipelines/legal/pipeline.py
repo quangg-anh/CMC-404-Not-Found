@@ -406,6 +406,7 @@ async def run_legal_ingest(
         "trang_thai": payload.get("trang_thai", "hieu_luc"),
         "visibility": payload.get("visibility", "public"),
         "co_quan_ban_hanh": payload.get("co_quan_ban_hanh"),
+        "source_filename": payload.get("source_filename"),
         "dieu_list": dieu_list,
     }
 

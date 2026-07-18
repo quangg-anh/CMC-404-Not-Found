@@ -166,6 +166,53 @@ class LegalDiffFacade:
         """Backfill Qdrant from Neo4j so ALL digitized Khoản become retrievable by the AI."""
         return await reindex_khoan_from_neo4j(self.driver, self.qdrant, self.embedder, van_ban_id)
 
+    async def delete_van_ban(self, van_ban_id: str) -> dict[str, Any]:
+        """Delete a digitized legal document from Neo4j, Qdrant, and Postgres metadata."""
+        deleted_graph = 0
+        deleted_files = 0
+        if self.driver and hasattr(self.driver, "session"):
+            try:
+                query = """
+                MATCH (v:VanBanPhapLuat)
+                WHERE v.vb_id = $id OR v.so_hieu = $id OR v.so_hieu_norm = $id OR v.id = $id
+                WITH v, coalesce(v.vb_id, v.so_hieu_norm, v.so_hieu, $id) AS root_id
+                OPTIONAL MATCH (d:Dieu)
+                WHERE d.van_ban_id = root_id OR d.dieu_id STARTS WITH (root_id + '::')
+                OPTIONAL MATCH (k:Khoan)
+                WHERE k.van_ban_id = root_id OR k.khoan_id STARTS WITH (root_id + '::')
+                OPTIONAL MATCH (p:Diem)
+                WHERE p.van_ban_id = root_id OR p.diem_id STARTS WITH (root_id + '::')
+                WITH collect(DISTINCT v) + collect(DISTINCT d) + collect(DISTINCT k) + collect(DISTINCT p) AS ns, root_id
+                UNWIND ns AS n
+                WITH DISTINCT n, root_id WHERE n IS NOT NULL
+                DETACH DELETE n
+                RETURN count(n) AS deleted, root_id
+                """
+                async with self.driver.session() as session:
+                    res = await session.run(query, id=van_ban_id)
+                    record = await res.single()
+                    if record:
+                        deleted_graph = int(record.get("deleted") or 0)
+                        root_id = record.get("root_id") or van_ban_id
+                        if self.qdrant and hasattr(self.qdrant, "delete_by_payload"):
+                            await self.qdrant.delete_by_payload("khoan", "van_ban_id", str(root_id))
+            except Exception:
+                pass
+
+        if self.pool and hasattr(self.pool, "acquire"):
+            try:
+                async with self.pool.acquire() as conn:
+                    result = await conn.execute(
+                        "DELETE FROM van_ban_files WHERE van_ban_id = $1 OR van_ban_id IN (SELECT id FROM van_ban WHERE id = $1 OR so_hieu = $1)",
+                        van_ban_id,
+                    )
+                    deleted_files = int(result.split()[-1]) if result and result.startswith("DELETE ") else 0
+                    await conn.execute("DELETE FROM van_ban WHERE id = $1 OR so_hieu = $1", van_ban_id)
+            except Exception:
+                pass
+
+        return {"id": van_ban_id, "deleted_graph_nodes": deleted_graph, "deleted_files": deleted_files}
+
     async def run_ner(self, van_ban_id: str | None = None, limit: int = 100) -> dict[str, Any]:
         """Run NER (entity extraction) as a decoupled background pass over un-processed Khoản."""
         return await run_ner_backfill(self.driver, self.llm_router, van_ban_id=van_ban_id, limit=limit)

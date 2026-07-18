@@ -63,7 +63,8 @@ class Neo4jLegalRepository:
         SET v.so_hieu = $so_hieu, v.ten = $ten, v.loai = $loai,
             v.ngay_ban_hanh = $ngay_ban_hanh, v.ngay_hieu_luc = $ngay_hieu_luc,
             v.trang_thai = $trang_thai, v.visibility = $visibility,
-            v.co_quan_ban_hanh = $co_quan_ban_hanh
+            v.co_quan_ban_hanh = $co_quan_ban_hanh,
+            v.source_filename = $source_filename
         WITH v
         UNWIND $dieu_list AS d
           MERGE (dieu:Dieu {dieu_id: d.dieu_id})
@@ -87,6 +88,7 @@ class Neo4jLegalRepository:
             "trang_thai": doc.get("trang_thai", "hieu_luc"),
             "visibility": doc.get("visibility", "public"),
             "co_quan_ban_hanh": doc.get("co_quan_ban_hanh"),
+            "source_filename": doc.get("source_filename"),
             "dieu_list": dieu_list,
         }
         async with self.driver.session() as session:

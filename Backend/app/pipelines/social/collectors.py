@@ -126,10 +126,16 @@ class YouTubeDataCollector:
         self._http = http_client
 
     def _api_keys(self) -> list[str]:
-        keys = [*self.config.youtube_api_keys]
+        raw_keys = [*self.config.youtube_api_keys]
         if self.config.youtube_api_key:
-            keys.append(self.config.youtube_api_key)
-        return list(dict.fromkeys(key for key in keys if key and not key.startswith("change_me")))
+            raw_keys.append(self.config.youtube_api_key)
+        keys: list[str] = []
+        for raw in raw_keys:
+            for key in str(raw).replace(";", ",").replace("\n", ",").split(","):
+                key = key.strip()
+                if key and not key.startswith("change_me"):
+                    keys.append(key)
+        return list(dict.fromkeys(keys))
 
     async def collect(self, topics: list[str], *, limit_per_topic: int | None = None) -> list[dict[str, Any]]:
         api_keys = self._api_keys()

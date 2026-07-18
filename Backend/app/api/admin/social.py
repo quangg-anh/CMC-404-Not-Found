@@ -22,6 +22,12 @@ class IngestSocialRequest(BaseModel):
 class LinkPreviewRequest(BaseModel):
     url: str = Field(..., description="Đường dẫn URL cần trích xuất preview metadata")
 
+class CrawlSocialRequest(BaseModel):
+    topics: list[str] | None = Field(default=None, description="Chủ đề cần crawl. Bỏ trống sẽ dùng BE2_SOCIAL_MONITOR_TOPICS")
+    platforms: list[str] = Field(default_factory=lambda: ["youtube"], description="Nguồn crawl: youtube, facebook, forum")
+    limit_per_topic: int | None = Field(default=None, ge=1, le=50, description="Số video/bài tối đa mỗi chủ đề")
+    dry_run: bool = Field(default=False, description="Chỉ thu thập thử, không ghi DB")
+
 
 @router.post("/ingest/social", summary="Đẩy bài đăng MXH vào pipeline BE2")
 async def ingest_social(
@@ -57,6 +63,21 @@ async def list_social_posts(
     items = await facade.list_posts(topic_slug=topic, status=status, needs_review=needs_review)
     return success_response(data={"items": items, "total": len(items)}, request_id=get_request_id())
 
+
+@router.post("/social/crawl", summary="Crawl MXH thật từ token đã cấu hình")
+async def crawl_social(
+    request: CrawlSocialRequest,
+    pool: Any = Depends(get_db_pool),
+    driver: Any = Depends(get_neo4j_driver),
+) -> dict[str, Any]:
+    facade = SocialAlertFacade(pool=pool, neo4j_driver=driver)
+    data = await facade.crawl_social(
+        topics=request.topics,
+        platforms=request.platforms,
+        limit_per_topic=request.limit_per_topic,
+        dry_run=request.dry_run,
+    )
+    return success_response(data=data, request_id=get_request_id())
 
 @router.post("/social/link-preview", summary="Trích xuất metadata & xem trước nội dung URL")
 @router.post("/link/preview", summary="Trích xuất metadata & xem trước nội dung URL (Alias khớp bảng §5.2)")

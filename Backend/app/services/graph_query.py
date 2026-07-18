@@ -2,6 +2,27 @@ from __future__ import annotations
 
 from typing import Any
 
+def _node_key(node: Any) -> str:
+    return str(
+        node.get("vb_id")
+        or node.get("khoan_id")
+        or node.get("dieu_id")
+        or node.get("bai_dang_id")
+        or node.get("slug")
+        or node.get("id")
+        or id(node)
+    )
+
+def _node_label(node: Any) -> str:
+    return str(
+        node.get("so_hieu")
+        or node.get("tieu_de")
+        or node.get("noi_dung")
+        or node.get("ten")
+        or node.get("text")
+        or _node_key(node)
+    )[:90]
+
 
 class GraphQueryService:
     """Service querying Neo4j neighborhood graph structure (`depth <= 2`) directly without mock data."""
@@ -25,7 +46,8 @@ class GraphQueryService:
                 query = f"""
                 MATCH path = (seed)-[r*1..{bounded_depth}]-(neighbor)
                 WHERE seed.vb_id = $seed_id OR seed.khoan_id = $seed_id OR seed.dieu_id = $seed_id
-                   OR seed.so_hieu = $seed_id OR seed.slug = $seed_id
+                         OR seed.bai_dang_id = $seed_id OR seed.id = $seed_id
+                         OR seed.so_hieu = $seed_id OR seed.so_hieu_norm = $seed_id OR seed.slug = $seed_id
                    OR seed.khoan_id STARTS WITH ($seed_id + '::')
                    OR seed.dieu_id STARTS WITH ($seed_id + '::')
                 RETURN nodes(path) AS ns, relationships(path) AS rels
@@ -37,10 +59,10 @@ class GraphQueryService:
                         for node in record["ns"]:
                             if node is None:
                                 continue
-                            nid = str(node.get("vb_id") or node.get("khoan_id") or node.get("slug") or node.get("id") or id(node))
+                            nid = _node_key(node)
                             labels = list(node.labels) if hasattr(node, "labels") else ["Node"]
                             node_type = labels[0] if labels else "Node"
-                            label_str = str(node.get("so_hieu") or node.get("tieu_de") or node.get("noi_dung") or node.get("ten") or nid)[:60]
+                            label_str = _node_label(node)
                             nodes_map[nid] = {"id": nid, "type": node_type, "label": label_str, "properties": dict(node)}
 
                         for rel in record["rels"]:
@@ -48,9 +70,9 @@ class GraphQueryService:
                                 continue
                             start_node = rel.start_node
                             end_node = rel.end_node
-                            sid = str(start_node.get("vb_id") or start_node.get("khoan_id") or start_node.get("slug") or id(start_node))
-                            eid = str(end_node.get("vb_id") or end_node.get("khoan_id") or end_node.get("slug") or id(end_node))
-                            rel_type = type(rel).__name__ if hasattr(rel, "__class__") else "REL"
+                            sid = _node_key(start_node)
+                            eid = _node_key(end_node)
+                            rel_type = getattr(rel, "type", None) or type(rel).__name__
                             edges_set.add((sid, eid, rel_type))
             except Exception:
                 pass
@@ -62,6 +84,38 @@ class GraphQueryService:
             "nodes": list(nodes_map.values()),
             "edges": edges_list,
         }
+
+    async def seed_suggestions(self, limit: int = 20) -> dict[str, Any]:
+        """Return useful starting nodes so the graph page is usable without memorized IDs."""
+        bounded_limit = max(1, min(limit, 50))
+        items: list[dict[str, Any]] = []
+        if self.driver and hasattr(self.driver, "session"):
+            try:
+                query = """
+                MATCH (n)
+                WHERE n.vb_id IS NOT NULL OR n.khoan_id IS NOT NULL OR n.dieu_id IS NOT NULL OR n.bai_dang_id IS NOT NULL
+                WITH n, labels(n) AS labels, size([(n)--() | 1]) AS degree
+                RETURN coalesce(n.vb_id, n.khoan_id, n.dieu_id, n.bai_dang_id, n.slug, n.id) AS id,
+                       labels[0] AS type,
+                       coalesce(n.so_hieu, n.tieu_de, n.noi_dung, n.ten, n.text, n.khoan_id, n.dieu_id, n.vb_id) AS label,
+                       degree
+                ORDER BY degree DESC, type ASC
+                LIMIT $limit
+                """
+                async with self.driver.session() as session:
+                    res = await session.run(query, limit=bounded_limit)
+                    async for r in res:
+                        items.append(
+                            {
+                                "id": str(r.get("id")),
+                                "type": r.get("type") or "Node",
+                                "label": str(r.get("label") or r.get("id"))[:120],
+                                "degree": int(r.get("degree") or 0),
+                            }
+                        )
+            except Exception:
+                pass
+        return {"items": items, "total": len(items)}
 
     async def clarity_index(self, min_volume: int = 5, limit: int = 50) -> dict[str, Any]:
         """Idea 02 — Legal Clarity Index.

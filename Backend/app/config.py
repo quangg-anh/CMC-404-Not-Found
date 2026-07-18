@@ -75,6 +75,11 @@ class BE2Config(BaseModel):
     youtube_require_topic_in_comments: bool = True
     forum_feed_urls: list[str] = Field(default_factory=list)
 
+    news_brief_enabled: bool = False
+    news_brief_cron_hour: int = Field(default=7, ge=0, le=23)
+    news_brief_cron_minute: int = Field(default=0, ge=0, le=59)
+    news_brief_limit_per_topic: int = Field(default=5, ge=1, le=20)
+
 
 @lru_cache(maxsize=1)
 def get_config() -> BE2Config:
@@ -129,4 +134,8 @@ def get_config() -> BE2Config:
         youtube_skip_videos_without_comments=_bool_env("BE2_YOUTUBE_SKIP_VIDEOS_WITHOUT_COMMENTS"),
         youtube_require_topic_in_comments=_bool_env("BE2_YOUTUBE_REQUIRE_TOPIC_IN_COMMENTS"),
         forum_feed_urls=_csv_env("BE2_FORUM_FEED_URLS"),
+        news_brief_enabled=_bool_env("BE2_NEWS_BRIEF_ENABLED", "false"),
+        news_brief_cron_hour=int(os.getenv("BE2_NEWS_BRIEF_CRON_HOUR", "7")),
+        news_brief_cron_minute=int(os.getenv("BE2_NEWS_BRIEF_CRON_MINUTE", "0")),
+        news_brief_limit_per_topic=int(os.getenv("BE2_NEWS_BRIEF_LIMIT_PER_TOPIC", "5")),
     )

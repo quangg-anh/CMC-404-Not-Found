@@ -7,6 +7,7 @@ from app.api.deps import get_db_pool, get_neo4j_driver, require_admin, require_r
 from app.core.envelope import success_response
 from app.core.logging import get_request_id
 from app.services.brief_service import BriefService
+from app.services.phapluat_news_service import PhapLuatNewsService
 
 router = APIRouter(tags=["Admin Briefs"], dependencies=[Depends(require_admin())])
 
@@ -23,6 +24,9 @@ class UpdateBriefRequest(BaseModel):
     noi_dung: str | None = None
     media_types: list[str] | None = None
     citations: list[dict[str, Any]] | None = None
+
+class SyncNewsBriefsRequest(BaseModel):
+    limit_per_topic: int = Field(default=5, ge=1, le=20)
 
 
 @router.get("/briefs", summary="Danh sách bài tóm tắt (Content Briefs)")
@@ -47,6 +51,16 @@ async def generate_brief(
     data = await service.generate_brief(request.model_dump(), user_id=user.user_id)
     return success_response(data=data, request_id=get_request_id())
 
+
+@router.post("/briefs/sync-news", summary="Cập nhật bản tin pháp luật từ phapluat.gov.vn")
+async def sync_news_briefs(
+    request: SyncNewsBriefsRequest,
+    pool: Any = Depends(get_db_pool),
+    user: UserToken = Depends(require_admin()),
+) -> dict[str, Any]:
+    service = PhapLuatNewsService(pool=pool)
+    data = await service.sync_briefs(user_id=user.user_id, limit_per_topic=request.limit_per_topic)
+    return success_response(data=data, request_id=get_request_id())
 
 @router.get("/briefs/{id}", summary="Chi tiết bài tóm tắt")
 async def get_brief(

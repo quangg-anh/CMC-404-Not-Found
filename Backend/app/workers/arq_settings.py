@@ -6,7 +6,7 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from app.config import BE2Config, get_config
-from app.workers.content_jobs import brief_generate, suggest_generate
+from app.workers.content_jobs import brief_generate, daily_news_briefs, suggest_generate
 from app.workers.legal_jobs import legal_ingest, legal_extract
 from app.workers.social_jobs import alert_fanout, daily_social_monitor, social_claim, social_ingest, social_link, social_topic
 
@@ -19,6 +19,7 @@ BE2_WORKER_FUNCTIONS = [
     daily_social_monitor,
     brief_generate,
     suggest_generate,
+    daily_news_briefs,
 ]
 
 # Legal ingest is BE1/BE3 territory (kept out of the scope-limited BE2 worker).
@@ -45,6 +46,7 @@ async def worker_startup(ctx: dict) -> None:
     from app.pipelines.social.collectors import build_default_monitor
     from app.pipelines.content.brief_generate import BriefGenerateService
     from app.pipelines.content.suggest_generate import SuggestGenerateService
+    from app.services.phapluat_news_service import PhapLuatNewsService
 
     cfg = get_config()
     pool = await get_db_pool()
@@ -75,12 +77,16 @@ async def worker_startup(ctx: dict) -> None:
     ctx["social_daily_monitor"] = build_default_monitor(cfg)
     ctx["brief_generate_service"] = BriefGenerateService(legal_repo, content_repo, router)
     ctx["suggest_generate_service"] = SuggestGenerateService(legal_repo, content_repo, router)
+    ctx["phapluat_news_service"] = PhapLuatNewsService(pool)
 
 def cron_jobs(config: BE2Config | None = None) -> list:
     cfg = config or get_config()
-    if not cfg.social_monitor_enabled:
-        return []
-    return [cron(daily_social_monitor, hour=cfg.social_monitor_cron_hour, minute=cfg.social_monitor_cron_minute, name="daily_social_monitor")]
+    jobs = []
+    if cfg.social_monitor_enabled:
+        jobs.append(cron(daily_social_monitor, hour=cfg.social_monitor_cron_hour, minute=cfg.social_monitor_cron_minute, name="daily_social_monitor"))
+    if cfg.news_brief_enabled:
+        jobs.append(cron(daily_news_briefs, hour=cfg.news_brief_cron_hour, minute=cfg.news_brief_cron_minute, name="daily_news_briefs"))
+    return jobs
 
 
 async def worker_shutdown(ctx: dict) -> None:

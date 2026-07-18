@@ -68,6 +68,23 @@ class QdrantVectorClient:
         await self.validate_collection(collection, len(first_vector))
         await self.client.upsert(collection_name=collection, points=points)
 
+    async def delete_by_payload(self, collection: str, key: str, value: str) -> None:
+        if not key or not value:
+            return
+        try:
+            from qdrant_client import models
+
+            await self.client.delete(
+                collection_name=collection,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[models.FieldCondition(key=key, match=models.MatchValue(value=value))]
+                    )
+                ),
+            )
+        except Exception:
+            return
+
     async def upsert_baidang(self, *, point_id: str, vector: list[float], bai_dang_id: str, chu_de: str | None, platform: str) -> None:
         if not point_id or not bai_dang_id or not platform:
             raise ContractMissingError("baidang point_id, bai_dang_id, and platform are required")
