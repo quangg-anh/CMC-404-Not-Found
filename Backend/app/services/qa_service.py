@@ -507,8 +507,12 @@ class QAService:
         MATCH (vb:VanBanPhapLuat)-[:CO_DIEU]->(d:Dieu)-[:CO_KHOAN]->(k:Khoan {khoan_id: kid})
         RETURN kid,
                vb.vb_id AS vb_id, vb.so_hieu AS so_hieu, vb.ten AS ten_van_ban,
-               d.dieu_id AS dieu_id, d.so_dieu AS so_dieu, d.tieu_de AS tieu_de_dieu,
-               k.khoan_id AS khoan_id, k.noi_dung AS noi_dung
+               d.dieu_id AS dieu_id,
+               coalesce(d.so_dieu, d.so) AS so_dieu,
+               d.tieu_de AS tieu_de_dieu,
+               k.khoan_id AS khoan_id,
+               coalesce(k.so_khoan, k.so) AS so_khoan,
+               k.noi_dung AS noi_dung
         LIMIT 50
         """
         paths: list[dict[str, Any]] = []
@@ -519,12 +523,30 @@ class QAService:
                     vb_id = str(r.get("vb_id") or r.get("so_hieu") or "van_ban")
                     dieu_id = str(r.get("dieu_id") or f"{vb_id}:dieu")
                     khoan_id = str(r.get("khoan_id") or r.get("kid"))
+                    so_dieu = self._article_number(r.get("so_dieu"), dieu_id)
+                    so_khoan = self._clause_number(r.get("so_khoan"), khoan_id)
                     paths.append({
                         "khoan_id": khoan_id,
                         "nodes": [
-                            {"id": vb_id, "type": "VanBanPhapLuat", "label": r.get("so_hieu") or vb_id, "title": r.get("ten_van_ban")},
-                            {"id": dieu_id, "type": "Dieu", "label": r.get("so_dieu") or dieu_id, "title": r.get("tieu_de_dieu")},
-                            {"id": khoan_id, "type": "Khoan", "label": khoan_id, "text": r.get("noi_dung")},
+                            {
+                                "id": vb_id,
+                                "type": "VanBanPhapLuat",
+                                "label": r.get("so_hieu") or vb_id,
+                                "title": r.get("ten_van_ban"),
+                            },
+                            {
+                                "id": dieu_id,
+                                "type": "Dieu",
+                                "label": so_dieu,
+                                "title": r.get("tieu_de_dieu"),
+                            },
+                            {
+                                "id": khoan_id,
+                                "type": "Khoan",
+                                "label": so_khoan or "Khoản",
+                                "title": f"Khoản {so_khoan}" if so_khoan else "Khoản",
+                                "text": r.get("noi_dung"),
+                            },
                         ],
                         "edges": [
                             {"source": vb_id, "target": dieu_id, "type": "CO_DIEU"},
@@ -535,11 +557,37 @@ class QAService:
                 return "not_found", "No matching graph paths found in Neo4j", []
         except Exception as exc:
             import logging
-            logging.getLogger(__name__).warning("Neo4j error fetching graph paths", exc_info=True)
+            logging.getLogger(__name__).warning("Neo4j error fetching graph paths: %s", exc, exc_info=True)
             return "unavailable", "neo4j_error", []
 
         # Basic deduplication of paths can be done here if needed
         return "available", None, paths
+
+    @staticmethod
+    def _article_number(raw: Any, dieu_id: str) -> str:
+        """Human Điều number: prefer stored so, else parse `...::D4` from dieu_id."""
+        if raw is not None and str(raw).strip():
+            s = str(raw).strip()
+            # Avoid showing a full id as the "number".
+            if "::" not in s and not s.upper().startswith("D"):
+                return s
+            m = re.search(r"D(\d+)", s, re.IGNORECASE)
+            if m:
+                return m.group(1)
+        m = re.search(r"::D(\d+)", dieu_id or "", re.IGNORECASE)
+        return m.group(1) if m else (dieu_id or "")
+
+    @staticmethod
+    def _clause_number(raw: Any, khoan_id: str) -> str:
+        if raw is not None and str(raw).strip():
+            s = str(raw).strip()
+            if "::" not in s and not s.upper().startswith("K"):
+                return s
+            m = re.search(r"K(\d+)", s, re.IGNORECASE)
+            if m:
+                return m.group(1)
+        m = re.search(r"\.K(\d+)", khoan_id or "", re.IGNORECASE)
+        return m.group(1) if m else ""
 
     async def _extractive_answer(
         self, candidates: list[CandidateKhoan], audience: str, reason: str

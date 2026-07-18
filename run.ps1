@@ -26,7 +26,12 @@
  Login (seeded): admin@local / admin123
  External deps (NOT started here - start them yourself):
    - Data stack containers: postgres/neo4j/qdrant/redis/minio (start via your own docker).
-   - Ollama on :11434 with model bge-m3 for embeddings.
+   - OpenAI-compatible host in Backend/.env (NO Ollama):
+       BE2_OPENAI_BASE_URL       shared /v1 host
+       BE2_LLM_LOCAL_MODEL       chat model (light)
+       BE2_LLM_LARGE_MODEL       chat model (QA/brief)
+       BE2_EMBEDDING_MODEL       embedding model
+       BE2_EMBEDDING_BASE_URL    (optional; defaults to OPENAI base)
 =====================================================================
 #>
 [CmdletBinding()]
@@ -137,18 +142,37 @@ function Wait-ForNeo4j([int]$TimeoutSec = 120) {
     return $false
 }
 
+function Get-EnvValue([string]$Key, [string]$Default = '') {
+    $envFile = Join-Path $Root 'Backend\.env'
+    if (-not (Test-Path $envFile)) { return $Default }
+    foreach ($line in Get-Content $envFile) {
+        if ($line -match '^\s*#' -or $line -notmatch '=') { continue }
+        $k, $v = $line.Split('=', 2)
+        if ($k.Trim() -eq $Key) { return $v.Trim().Trim('"').Trim("'") }
+    }
+    return $Default
+}
+
 function Test-BackendPrereqs {
     # Non-fatal preflight so failures are obvious instead of silent 500s / broken login.
     if (-not (Test-TcpPort 'localhost' 5432)) {
         Write-Warn 'Postgres :5432 not running - login and data will fail. Run: ./run.ps1 -Stack'
     }
-    if (-not (Test-TcpPort 'localhost' 11434)) {
-        Write-Warn 'Ollama :11434 not running - embeddings (bge-m3) will fail; QA/ingest cannot build vectors.'
-    } else {
-        try {
-            $tags = Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 4
-            if (-not ($tags.models.name -match 'bge-m3')) { Write-Warn 'Ollama missing model bge-m3 - run: ollama pull bge-m3' }
-        } catch {}
+    # Probe OpenAI-compatible embedding base from Backend/.env (no Ollama).
+    $embBase = Get-EnvValue 'BE2_EMBEDDING_BASE_URL' (Get-EnvValue 'BE2_OPENAI_BASE_URL' '')
+    if (-not $embBase) {
+        Write-Warn 'BE2_EMBEDDING_BASE_URL / BE2_OPENAI_BASE_URL not set in Backend/.env - embeddings will fail.'
+        return
+    }
+    try {
+        $uri = [Uri]$embBase
+        $hostName = $uri.Host
+        $port = if ($uri.IsDefaultPort) { if ($uri.Scheme -eq 'https') { 443 } else { 80 } } else { $uri.Port }
+        if ($hostName -in @('localhost', '127.0.0.1') -and -not (Test-TcpPort $hostName $port)) {
+            Write-Warn "Embedding endpoint ${embBase} not reachable - QA/ingest cannot build vectors."
+        }
+    } catch {
+        Write-Warn "Could not parse BE2_EMBEDDING_BASE_URL='$embBase'"
     }
 }
 

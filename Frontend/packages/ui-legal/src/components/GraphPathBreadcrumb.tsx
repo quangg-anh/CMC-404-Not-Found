@@ -19,10 +19,26 @@ interface GraphPathBreadcrumbProps {
   paths?: unknown[];
 }
 
+function dieuNumber(label?: string, id?: string): string {
+  const raw = (label || '').trim();
+  if (raw && !raw.includes('::') && !/^D\d+/i.test(raw)) return raw;
+  const fromLabel = raw.match(/D(\d+)/i);
+  if (fromLabel) return fromLabel[1];
+  const fromId = (id || '').match(/::D(\d+)/i);
+  return fromId?.[1] || raw || '';
+}
+
 function nodeLabel(n: GraphNode): string {
   const t = (n.type || '').toLowerCase();
-  if (t === 'dieu') return `Điều ${n.label ?? ''}`.trim();
-  if (t === 'khoan') return n.title || 'Khoản';
+  if (t === 'dieu') {
+    const num = dieuNumber(n.label, n.id);
+    return num ? `Điều ${num}` : 'Điều';
+  }
+  if (t === 'khoan') {
+    if (n.title && !n.title.includes('::')) return n.title;
+    const m = (n.label || n.id || '').match(/\.?K(\d+)/i);
+    return m ? `Khoản ${m[1]}` : 'Khoản';
+  }
   return n.title || n.label || n.id || '—';
 }
 

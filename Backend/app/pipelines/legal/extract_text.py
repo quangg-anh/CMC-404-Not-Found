@@ -73,12 +73,61 @@ def clean_text(text: str) -> str:
     for ch in ("\u00ad", "\u200b", "\u200c", "\u200d", "\ufeff", "\u2060"):
         text = text.replace(ch, "")
 
+    text = _repair_vietnamese_ocr(text)
+
     # Normalize newlines and collapse runaway whitespace without destroying paragraph breaks.
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[ \t\f\v]+", " ", text)
     text = re.sub(r" *\n *", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
+    # Drop empty table-cell leftovers like " | | |"
+    text = re.sub(r"(?:\s*\|\s*){2,}", " ", text)
+    text = re.sub(r"\s+\|\s*$", "", text, flags=re.MULTILINE)
     return text.strip()
+
+
+# Common Vietnamese OCR confusions in legal PDFs (Tesseract vie on scanned decrees).
+# Order matters: longer / more specific phrases first.
+_OCR_PHRASE_FIXES: list[tuple[str, str]] = [
+    (r"công\s*bồ\s*MƠng", "công bố lượng"),
+    (r"công\s*bồ", "công bố"),
+    (r"không\s*đỄtu\s*giá", "không đấu giá"),
+    (r"đỄtu\s*giá", "đấu giá"),
+    (r"trúng\s*đâu\s*giá", "trúng đấu giá"),
+    (r"không\s*hệt", "không hết"),
+    (r"Hội\s*đông\s*đâu\s*giá", "Hội đồng đấu giá"),
+    (r"Hội\s*đông", "Hội đồng"),
+    (r"đâu\s*giá\s*đôi\s*với", "đấu giá đối với"),
+    (r"đâu\s*giá", "đấu giá"),
+    (r"hạn\s*ngạch\s*thuê\s*quan", "hạn ngạch thuế quan"),
+    (r"thuê\s*quan", "thuế quan"),
+    (r"diễn\s*biên", "diễn biến"),
+    (r"thời\s*điêm", "thời điểm"),
+    (r"kêt\s*thúc", "kết thúc"),
+    (r"quyêt\s*định", "quyết định"),
+    (r"tiêp\s*tục", "tiếp tục"),
+    (r"đề\s*Bộ\s*Công\s*Thương", "để Bộ Công Thương"),
+    (r"mặt\s*hàng\s*đương", "mặt hàng đường"),
+    (r"nhập\s*khâu", "nhập khẩu"),
+    (r"thue\s*quan", "thuế quan"),
+    (r"Trách\s*Mnem", "Trách nhiệm"),
+    (r"PIọn\s*đồng", "Hội đồng"),
+    (r"hmn\s*ngạch", "hạn ngạch"),
+    (r"ủ_m\s*ngạch", "hạn ngạch"),
+    (r"N1an\s*giao", "phân giao"),
+    (r"\bQuyen\b", "Quyền"),
+    (r"fflrơng", "đường"),
+]
+
+
+def _repair_vietnamese_ocr(text: str) -> str:
+    """Fix frequent Vietnamese OCR typos without changing correct text aggressively."""
+    if not text:
+        return text
+    out = text
+    for pattern, repl in _OCR_PHRASE_FIXES:
+        out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
+    return out
 
 
 def text_quality(text: str) -> float:

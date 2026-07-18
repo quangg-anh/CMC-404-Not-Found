@@ -15,7 +15,8 @@ USAGE (from repo root, using the backend's Python interpreter):
         --email admin@local --password admin123 --visibility public
 
 Notes:
-  - The backend (:8000), MinIO (:9000) and Ollama (:11434, for embeddings) must be running.
+  - The backend (:8000), MinIO (:9000) and an OpenAI-compatible embedding endpoint
+    (BE2_EMBEDDING_BASE_URL / BE2_EMBEDDING_MODEL in Backend/.env) must be reachable.
   - so_hieu is derived from the filename (e.g. "01-2013-QD-UBND" -> "01/2013/QD-UBND"); if it can't
     be parsed, the filename stem is used. Pass --sohieu-from-name to always use the raw stem.
 """

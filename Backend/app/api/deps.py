@@ -118,7 +118,7 @@ async def get_llm_router(config: BE2Config = Depends(get_config)) -> LLMRouter:
 
 
 async def get_embedder(config: BE2Config = Depends(get_config)) -> Embedder | None:
-    """Retrieve or initialize the sentence embedder (bge-m3) used for real vector retrieval."""
+    """Retrieve the OpenAI-compatible embedder used for real vector retrieval."""
     global _embedder
     if _embedder is None:
         try:

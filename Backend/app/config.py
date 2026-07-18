@@ -17,21 +17,24 @@ def _bool_env(name: str, default: str = "true") -> bool:
 
 
 class BE2Config(BaseModel):
-    # Embeddings now go through an OpenAI-compatible API (e.g. Ollama /v1/embeddings) by default;
-    # the legacy torch/sentence-transformers "local" provider is kept only for backward compat.
-    embedding_provider: str = Field(default="openai", pattern="^(local|tei|openai)$")
-    embedding_model: str = "bge-m3"
+    # ---- OpenAI-compatible AI stack (no Ollama / no local torch) ----
+    # Shared host for chat + embeddings unless embedding_base_url is overridden.
+    openai_base_url: HttpUrl | None = None
+    openai_api_key: str | None = None
+
+    # Embeddings: POST {embedding_base_url}/embeddings
+    embedding_provider: str = Field(default="openai", pattern="^(openai)$")
+    embedding_model: str = "text-embedding-3-small"
     embedding_batch_size: int = Field(default=32, ge=1, le=256)
     embedding_timeout_s: float = Field(default=60.0, gt=0)
-    embedding_dimension: int | None = 1024
-    tei_url: HttpUrl | None = None
-    # OpenAI-compatible embeddings endpoint (works against Ollama's /v1, vLLM, LM Studio, OpenAI).
-    embedding_base_url: HttpUrl | None = Field(default="http://localhost:11434/v1")
-    embedding_api_key: str | None = "ollama"
+    embedding_dimension: int | None = 1536
+    embedding_base_url: HttpUrl | None = None
+    embedding_api_key: str | None = None
 
+    # Two chat models (router picks by task complexity → /local vs /large on BE2 gateway)
     llm_gateway_url: HttpUrl | None = None
-    llm_local_model: str = "gemma-local"
-    llm_large_model: str = "large-schema-locked"
+    llm_local_model: str = "gpt-4o-mini"
+    llm_large_model: str = "gpt-4o"
     llm_local_timeout_s: float = Field(default=20.0, gt=0)
     llm_large_timeout_s: float = Field(default=60.0, gt=0)
     llm_retry_count: int = Field(default=1, ge=0, le=3)
@@ -83,18 +86,38 @@ class BE2Config(BaseModel):
 
 @lru_cache(maxsize=1)
 def get_config() -> BE2Config:
+    openai_base = (os.getenv("BE2_OPENAI_BASE_URL") or "").strip() or None
+    openai_key = (os.getenv("BE2_OPENAI_API_KEY") or "").strip() or None
+
+    # Embeddings default to the same OpenAI-compatible host/key as chat (no Ollama).
+    emb_base = (os.getenv("BE2_EMBEDDING_BASE_URL") or openai_base or "").strip() or None
+    emb_key = (os.getenv("BE2_EMBEDDING_API_KEY") or openai_key or "").strip() or None
+
+    provider = (os.getenv("BE2_EMBEDDING_PROVIDER", "openai") or "openai").lower()
+    if provider != "openai":
+        provider = "openai"
+
+    # Two LLM models. Legacy BE2_OPENAI_MODEL fills either slot if the specific var is missing.
+    legacy_model = (os.getenv("BE2_OPENAI_MODEL") or "").strip() or None
+    llm_local = (os.getenv("BE2_LLM_LOCAL_MODEL") or legacy_model or "gpt-4o-mini").strip()
+    llm_large = (os.getenv("BE2_LLM_LARGE_MODEL") or legacy_model or "gpt-4o").strip()
+
+    emb_dim_raw = os.getenv("BE2_EMBEDDING_DIMENSION")
+    emb_dim = int(emb_dim_raw) if emb_dim_raw else 1536
+
     return BE2Config(
-        embedding_provider=os.getenv("BE2_EMBEDDING_PROVIDER", "openai"),
-        embedding_model=os.getenv("BE2_EMBEDDING_MODEL", "bge-m3"),
+        openai_base_url=openai_base,
+        openai_api_key=openai_key,
+        embedding_provider=provider,
+        embedding_model=os.getenv("BE2_EMBEDDING_MODEL", "text-embedding-3-small"),
         embedding_batch_size=int(os.getenv("BE2_EMBEDDING_BATCH_SIZE", "32")),
         embedding_timeout_s=float(os.getenv("BE2_EMBEDDING_TIMEOUT_S", "60")),
-        embedding_dimension=int(os.getenv("BE2_EMBEDDING_DIMENSION")) if os.getenv("BE2_EMBEDDING_DIMENSION") else 1024,
-        tei_url=os.getenv("BE2_TEI_URL") or None,
-        embedding_base_url=os.getenv("BE2_EMBEDDING_BASE_URL", "http://localhost:11434/v1") or None,
-        embedding_api_key=os.getenv("BE2_EMBEDDING_API_KEY", "ollama") or None,
+        embedding_dimension=emb_dim,
+        embedding_base_url=emb_base,
+        embedding_api_key=emb_key,
         llm_gateway_url=os.getenv("BE2_LLM_GATEWAY_URL") or None,
-        llm_local_model=os.getenv("BE2_LLM_LOCAL_MODEL", "gemma-local"),
-        llm_large_model=os.getenv("BE2_LLM_LARGE_MODEL", "large-schema-locked"),
+        llm_local_model=llm_local,
+        llm_large_model=llm_large,
         llm_local_timeout_s=float(os.getenv("BE2_LLM_LOCAL_TIMEOUT_S", "20")),
         llm_large_timeout_s=float(os.getenv("BE2_LLM_LARGE_TIMEOUT_S", "60")),
         llm_retry_count=int(os.getenv("BE2_LLM_RETRY_COUNT", "1")),

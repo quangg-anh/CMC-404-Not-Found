@@ -4,21 +4,20 @@ Implements the contract expected by BE3's ``RealLLMClient``:
   POST /local , POST /large  -> {model, task, prompt, timeout_s} -> {"output": {...}}
   GET  /health
 
-Answer synthesis uses a REAL LLM when available (Ollama native API, or any OpenAI-compatible
-endpoint such as Ollama's /v1, vLLM, LM Studio, OpenAI). The LLM only phrases the natural-language
-``answer``; the ``citations`` are always extracted VERBATIM from the ``retrieved_context`` in the
-prompt (never from the model), so BE3's exact-match citation validation still holds and the model
-can never fabricate a quote. If no LLM backend is reachable it degrades to a grounded extractive
-answer, so the service always responds.
+Answer synthesis uses an OpenAI-compatible chat API only (``/v1/chat/completions`` — 9router,
+vLLM, LM Studio, OpenAI, Ollama's OpenAI shim, etc.). No Ollama-native ``/api/chat`` and no
+in-process torch model. The LLM only phrases the natural-language ``answer``; ``citations`` are
+always extracted VERBATIM from ``retrieved_context`` so BE3's exact-match validation holds. If the
+LLM is unreachable it degrades to a grounded extractive answer.
 
 Configuration (env):
-  BE2_LLM_BACKEND      auto | ollama | openai | extractive   (default: auto)
-  BE2_OLLAMA_URL       default http://localhost:11434
-  BE2_OLLAMA_MODEL     default gemma2
-  BE2_OPENAI_BASE_URL  default http://localhost:11434/v1     (OpenAI-compatible base)
-  BE2_OPENAI_API_KEY   default "ollama"
-  BE2_OPENAI_MODEL     default gemma2
-  BE2_LLM_TIMEOUT_S    default 60
+  BE2_LLM_BACKEND         openai | extractive   (default: openai)
+  BE2_OPENAI_BASE_URL     OpenAI-compatible base (e.g. https://…/v1) — required
+  BE2_OPENAI_API_KEY      bearer token
+  BE2_LLM_LOCAL_MODEL     lighter model (parse/extract /local)
+  BE2_LLM_LARGE_MODEL     stronger model (qa/brief /large)
+  BE2_OPENAI_MODEL        legacy fallback if LOCAL/LARGE unset
+  BE2_LLM_TIMEOUT_S       default 60
 
 Run:  uvicorn be2_service:app --port 8002
 """
@@ -34,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 
 
@@ -61,16 +60,21 @@ app = FastAPI(title="BE2 Intelligence (local dev gateway)", version="0.2.0")
 
 _CTX_LINE = re.compile(r"^\[(?P<kid>[^\]]+)\]\s*(?P<text>.+)$")
 
-BACKEND = os.getenv("BE2_LLM_BACKEND", "auto").lower()
-OLLAMA_URL = os.getenv("BE2_OLLAMA_URL", "http://localhost:11434").rstrip("/")
-OLLAMA_MODEL = os.getenv("BE2_OLLAMA_MODEL", "gemma2")
-OLLAMA_KEEP_ALIVE = os.getenv("BE2_OLLAMA_KEEP_ALIVE", "30m")
-OPENAI_BASE_URL = os.getenv("BE2_OPENAI_BASE_URL", "http://localhost:11434/v1").rstrip("/")
-OPENAI_API_KEY = os.getenv("BE2_OPENAI_API_KEY", "ollama")
-OPENAI_MODEL = os.getenv("BE2_OPENAI_MODEL", "gemma2")
+_raw_backend = os.getenv("BE2_LLM_BACKEND", "openai").lower().strip()
+if _raw_backend in {"", "auto", "ollama"}:
+    BACKEND = "openai"
+elif _raw_backend in {"openai", "extractive"}:
+    BACKEND = _raw_backend
+else:
+    BACKEND = "openai"
+
+OPENAI_BASE_URL = (os.getenv("BE2_OPENAI_BASE_URL") or "").rstrip("/")
+OPENAI_API_KEY = os.getenv("BE2_OPENAI_API_KEY") or ""
+_legacy_model = (os.getenv("BE2_OPENAI_MODEL") or "").strip()
+LLM_LOCAL_MODEL = (os.getenv("BE2_LLM_LOCAL_MODEL") or _legacy_model or "gpt-4o-mini").strip()
+LLM_LARGE_MODEL = (os.getenv("BE2_LLM_LARGE_MODEL") or _legacy_model or "gpt-4o").strip()
 LLM_TIMEOUT = float(os.getenv("BE2_LLM_TIMEOUT_S", "60"))
-# Anti-loop generation controls. Small local models (e.g. 4B Qwen distills) tend to repeat
-# themselves; a repeat penalty + a hard token cap keeps the chat answer from looping forever.
+# Anti-loop generation controls for chat completions.
 LLM_TEMPERATURE = float(os.getenv("BE2_LLM_TEMPERATURE", "0.2"))
 LLM_MAX_TOKENS = int(os.getenv("BE2_LLM_MAX_TOKENS", "512"))
 LLM_REPEAT_PENALTY = float(os.getenv("BE2_LLM_REPEAT_PENALTY", "1.3"))
@@ -113,39 +117,12 @@ def _extract_question(prompt: str) -> str:
     return ""
 
 
-async def _ollama_chat(system: str, user: str, timeout_s: float) -> str | None:
-    """Call Ollama native chat API. Returns text or None on failure."""
-    try:
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
-            resp = await client.post(
-                f"{OLLAMA_URL}/api/chat",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "stream": False,
-                    "keep_alive": OLLAMA_KEEP_ALIVE,
-                    "options": {
-                        "temperature": LLM_TEMPERATURE,
-                        "num_predict": LLM_MAX_TOKENS,
-                        "repeat_penalty": LLM_REPEAT_PENALTY,
-                        # Penalise repeats over a wide window so it can't loop a whole sentence.
-                        "repeat_last_n": 256,
-                    },
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return (data.get("message", {}) or {}).get("content", "").strip() or None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("ollama backend failed: %s", exc)
-        return None
-
-
-async def _openai_chat(system: str, user: str, timeout_s: float) -> str | None:
+async def _openai_chat(system: str, user: str, timeout_s: float, model: str | None = None) -> str | None:
     """Call any OpenAI-compatible /chat/completions endpoint. Returns text or None on failure."""
+    if not OPENAI_BASE_URL:
+        logger.warning("BE2_OPENAI_BASE_URL is not set")
+        return None
+    use_model = (model or LLM_LARGE_MODEL).strip() or LLM_LARGE_MODEL
     try:
         headers = {"Content-Type": "application/json"}
         if OPENAI_API_KEY:
@@ -155,7 +132,7 @@ async def _openai_chat(system: str, user: str, timeout_s: float) -> str | None:
                 f"{OPENAI_BASE_URL}/chat/completions",
                 headers=headers,
                 json={
-                    "model": OPENAI_MODEL,
+                    "model": use_model,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
@@ -223,32 +200,16 @@ def _clean_llm_text(text: str | None) -> str | None:
     return cleaned or None
 
 
-async def _llm_generate(system: str, user: str, timeout_s: float) -> str | None:
-    """Dispatch within one total deadline, leaving the caller time for extractive fallback."""
+async def _llm_generate(system: str, user: str, timeout_s: float, model: str | None = None) -> str | None:
+    """Call OpenAI-compatible chat within one deadline; None triggers extractive fallback."""
     if BACKEND == "extractive":
         return None
     budget = max(0.1, min(timeout_s, LLM_TIMEOUT))
-    deadline = time.monotonic() + budget
-
-    async def attempt(call: Any, share_s: float) -> str | None:
-        remaining = min(share_s, deadline - time.monotonic())
-        if remaining <= 0:
-            return None
-        try:
-            return await asyncio.wait_for(call(system, user, remaining), timeout=remaining)
-        except TimeoutError:
-            logger.warning("LLM attempt exceeded %.2fs deadline", remaining)
-            return None
-
-    if BACKEND == "openai":
-        return _clean_llm_text(await attempt(_openai_chat, budget))
-    if BACKEND == "ollama":
-        return _clean_llm_text(await attempt(_ollama_chat, budget))
-    # Auto shares one budget instead of allowing two full sequential timeouts.
-    first_budget = max(0.1, budget * 0.6)
-    raw = await attempt(_ollama_chat, first_budget)
-    if raw is None:
-        raw = await attempt(_openai_chat, max(0.1, deadline - time.monotonic()))
+    try:
+        raw = await asyncio.wait_for(_openai_chat(system, user, budget, model=model), timeout=budget)
+    except TimeoutError:
+        logger.warning("LLM attempt exceeded %.2fs deadline", budget)
+        return None
     return _clean_llm_text(raw)
 
 
@@ -358,7 +319,7 @@ def _extractive_answer(question: str, ctx: list[tuple[str, str]]) -> str:
     )
 
 
-async def _handle_qa(prompt: str, timeout_s: float) -> dict[str, Any]:
+async def _handle_qa(prompt: str, timeout_s: float, model: str | None = None) -> dict[str, Any]:
     ctx = _parse_context(prompt)
     question = _extract_question(prompt)
     if not ctx:
@@ -379,6 +340,7 @@ async def _handle_qa(prompt: str, timeout_s: float) -> dict[str, Any]:
             "không được suy đoán điều/khoản/số văn bản/mức tiền. Ưu tiên hỏi lại thông tin còn thiếu và giải thích vì sao chưa thể kết luận.",
             user_msg,
             timeout_s,
+            model=model,
         )
         if llm_answer:
             return {"answer": llm_answer, "citations": [], "confidence": "low"}
@@ -405,7 +367,7 @@ async def _handle_qa(prompt: str, timeout_s: float) -> dict[str, Any]:
         "Nếu hỏi về mức tiền, thời hạn, điều kiện, xử phạt, thẩm quyền, chỉ trích đúng dữ kiện có trong Ngữ cảnh. "
         "Không hỏi lại nếu Ngữ cảnh đủ; không kết luận chắc chắn khi Ngữ cảnh chỉ có một phần."
     )
-    llm_answer = await _llm_generate(_SYSTEM_PROMPT, user_msg, timeout_s)
+    llm_answer = await _llm_generate(_SYSTEM_PROMPT, user_msg, timeout_s, model=model)
 
     if llm_answer:
         return {"answer": llm_answer, "citations": citations, "confidence": "medium"}
@@ -414,7 +376,7 @@ async def _handle_qa(prompt: str, timeout_s: float) -> dict[str, Any]:
     return {"answer": _extractive_answer(question, top), "citations": citations, "confidence": "medium"}
 
 
-async def _handle_brief_or_suggest(task: str, prompt: str, timeout_s: float) -> dict[str, Any]:
+async def _handle_brief_or_suggest(task: str, prompt: str, timeout_s: float, model: str | None = None) -> dict[str, Any]:
     ctx = _parse_context(prompt)
     citations = [{"khoan_id": kid, "quote": text} for kid, text in ctx[:3]]
     kind = "bài tóm tắt pháp lý cho người dân" if task == "brief" else "đề xuất đính chính thông tin sai lệch"
@@ -422,7 +384,7 @@ async def _handle_brief_or_suggest(task: str, prompt: str, timeout_s: float) -> 
         f"Ngữ cảnh (các điều khoản pháp luật liên quan):\n{_context_block(ctx[:3])}\n\n"
         f"Hãy soạn một {kind} ngắn gọn, tự nhiên bằng tiếng Việt, chỉ dựa vào Ngữ cảnh, dẫn chiếu mã khoản."
     )
-    llm_text = await _llm_generate(_SYSTEM_PROMPT, user_msg, timeout_s)
+    llm_text = await _llm_generate(_SYSTEM_PROMPT, user_msg, timeout_s, model=model)
     if not llm_text:
         body = "\n".join(f"- {kid}: {text}" for kid, text in ctx[:3]) or "(không có ngữ cảnh)"
         prefix = "Bản nháp tóm tắt dựa trên quy định pháp luật:" if task == "brief" else "Đề xuất đính chính dựa trên quy định pháp luật:"
@@ -437,11 +399,11 @@ async def _handle_brief_or_suggest(task: str, prompt: str, timeout_s: float) -> 
     }
 
 
-async def _handle(task: str, prompt: str, timeout_s: float) -> dict[str, Any]:
+async def _handle(task: str, prompt: str, timeout_s: float, model: str | None = None) -> dict[str, Any]:
     if task == "qa":
-        return await _handle_qa(prompt, timeout_s)
+        return await _handle_qa(prompt, timeout_s, model=model)
     if task in {"brief", "suggest"}:
-        return await _handle_brief_or_suggest(task, prompt, timeout_s)
+        return await _handle_brief_or_suggest(task, prompt, timeout_s, model=model)
     return {"output": "", "answer": "", "citations": []}
 
 
@@ -449,29 +411,37 @@ async def _handle(task: str, prompt: str, timeout_s: float) -> dict[str, Any]:
 async def health() -> dict[str, Any]:
     info: dict[str, Any] = {
         "ok": True,
-        "service": "be2-intelligence-local",
+        "service": "be2-intelligence",
         "backend": BACKEND,
-        "ollama_model": OLLAMA_MODEL,
-        "openai_model": OPENAI_MODEL,
+        "openai_base_url": OPENAI_BASE_URL or None,
+        "llm_local_model": LLM_LOCAL_MODEL,
+        "llm_large_model": LLM_LARGE_MODEL,
     }
-    # Best-effort probe of the active LLM backend.
-    if BACKEND in {"auto", "ollama"}:
+    # Best-effort probe of the OpenAI-compatible base (models list if the provider exposes it).
+    if BACKEND == "openai" and OPENAI_BASE_URL:
         try:
+            headers = {}
+            if OPENAI_API_KEY:
+                headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
             async with httpx.AsyncClient(timeout=3.0) as client:
-                r = await client.get(f"{OLLAMA_URL}/api/tags")
-                info["ollama_reachable"] = r.is_success
-                if r.is_success:
-                    info["ollama_models"] = [m.get("name") for m in r.json().get("models", [])]
+                r = await client.get(f"{OPENAI_BASE_URL}/models", headers=headers)
+                info["openai_reachable"] = r.is_success
         except Exception:
-            info["ollama_reachable"] = False
+            info["openai_reachable"] = False
     return info
 
 
 @app.post("/local")
 @app.post("/large")
-async def complete(req: CompleteRequest) -> dict[str, Any]:
+async def complete(req: CompleteRequest, request: Request) -> dict[str, Any]:
+    # Prefer the model BE3's LLMRouter selected (llm_local vs llm_large). Fallback by path.
+    model = (req.model or "").strip()
+    if not model:
+        path = request.url.path.rstrip("/")
+        model = LLM_LOCAL_MODEL if path.endswith("/local") else LLM_LARGE_MODEL
+
     request_budget = min(req.timeout_s or LLM_TIMEOUT, LLM_TIMEOUT)
     # Reserve time so the grounded extractive fallback is returned before the upstream timeout.
     model_budget = max(0.1, request_budget - min(2.0, request_budget * 0.15))
-    output = await _handle(req.task, req.prompt, model_budget)
-    return {"output": output, "token_usage": {"prompt": len(req.prompt.split()), "completion": 0}}
+    output = await _handle(req.task, req.prompt, model_budget, model=model)
+    return {"output": output, "token_usage": {"prompt": len(req.prompt.split()), "completion": 0}, "model": model}

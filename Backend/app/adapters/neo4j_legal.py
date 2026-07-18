@@ -68,13 +68,13 @@ class Neo4jLegalRepository:
         WITH v
         UNWIND $dieu_list AS d
           MERGE (dieu:Dieu {dieu_id: d.dieu_id})
-          SET dieu.so = d.so, dieu.tieu_de = d.tieu_de,
+          SET dieu.so = d.so, dieu.so_dieu = d.so, dieu.tieu_de = d.tieu_de,
               dieu.van_ban_id = $vb_id, dieu.visibility = $visibility
           MERGE (v)-[:CO_DIEU]->(dieu)
           WITH v, dieu, d
           UNWIND d.khoan_list AS k
             MERGE (kh:Khoan {khoan_id: k.khoan_id})
-            SET kh.so = k.so, kh.noi_dung = k.noi_dung, kh.van_ban_id = $vb_id,
+            SET kh.so = k.so, kh.so_khoan = k.so, kh.noi_dung = k.noi_dung, kh.van_ban_id = $vb_id,
                 kh.dieu_id = d.dieu_id, kh.visibility = $visibility
             MERGE (dieu)-[:CO_KHOAN]->(kh)
         """

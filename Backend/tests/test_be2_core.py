@@ -42,6 +42,7 @@ class FakeLLM:
 
 
 class FakeModel:
+    """Deprecated stub — embeddings are OpenAI-compatible only; kept so older imports don't break."""
     def encode(self, batch, normalize_embeddings=True):
         return [[float(len(text)), 0.0] for text in batch]
 
@@ -158,7 +159,15 @@ async def test_context_required_for_brief():
 
 @pytest.mark.asyncio
 async def test_embedding_validation():
-    embedder = Embedder(BE2Config(embedding_provider="local", embedding_batch_size=1, embedding_dimension=2), model=FakeModel())
+    http = FakeOpenAIEmbeddingHttp()
+    cfg = BE2Config(
+        embedding_provider="openai",
+        embedding_base_url="http://example.test/v1",
+        embedding_api_key="test",
+        embedding_batch_size=1,
+        embedding_dimension=2,
+    )
+    embedder = Embedder(cfg, http_client=http)
     assert len(await embedder.embed_texts([" a ", "b"])) == 2
     with pytest.raises(ValidationError):
         await embedder.embed_texts([])
@@ -170,28 +179,27 @@ async def test_openai_compatible_embedding_uses_injected_http_not_ollama():
     http = FakeOpenAIEmbeddingHttp()
     cfg = BE2Config(
         embedding_provider="openai",
-        embedding_base_url="http://localhost:11434/v1",
-        embedding_api_key="ollama",
-        embedding_model="bge-m3",
+        embedding_base_url="https://example.test/v1",
+        embedding_api_key="test-key",
+        embedding_model="text-embedding-3-small",
         embedding_dimension=2,
     )
     vectors = await Embedder(cfg, http_client=http).embed_texts(["một", "hai"])
     assert vectors == [[1.0, 0.0], [2.0, 0.0]]
-    assert http.calls[0][0] == "http://localhost:11434/v1/embeddings"
-    assert http.calls[0][2]["model"] == "bge-m3"
+    assert http.calls[0][0] == "https://example.test/v1/embeddings"
+    assert http.calls[0][2]["model"] == "text-embedding-3-small"
 
 
 @pytest.mark.asyncio
 async def test_be2_llm_uses_one_total_deadline_and_falls_back(monkeypatch):
     calls = []
 
-    async def slow_backend(system, user, timeout_s):
+    async def slow_backend(system, user, timeout_s, model=None):
         calls.append(timeout_s)
         await asyncio.sleep(timeout_s + 0.05)
         return "late"
 
-    monkeypatch.setattr(be2_service, "BACKEND", "auto")
-    monkeypatch.setattr(be2_service, "_ollama_chat", slow_backend)
+    monkeypatch.setattr(be2_service, "BACKEND", "openai")
     monkeypatch.setattr(be2_service, "_openai_chat", slow_backend)
     result = await be2_service._llm_generate("system", "user", 0.1)
 
@@ -203,17 +211,25 @@ async def test_be2_llm_uses_one_total_deadline_and_falls_back(monkeypatch):
 async def test_be2_complete_reserves_time_for_extractive_fallback(monkeypatch):
     captured = {}
 
-    async def fake_handle(task, prompt, timeout_s):
+    async def fake_handle(task, prompt, timeout_s, model=None):
         captured["timeout_s"] = timeout_s
+        captured["model"] = model
         return {"answer": "fallback", "citations": [], "confidence": "low"}
+
+    class FakeRequest:
+        class URL:
+            path = "/large"
+        url = URL()
 
     monkeypatch.setattr(be2_service, "LLM_TIMEOUT", 60.0)
     monkeypatch.setattr(be2_service, "_handle", fake_handle)
     response = await be2_service.complete(
-        be2_service.CompleteRequest(task="qa", prompt="Câu hỏi: test", timeout_s=20.0)
+        be2_service.CompleteRequest(task="qa", prompt="Câu hỏi: test", timeout_s=20.0, model="test-large"),
+        FakeRequest(),
     )
 
     assert captured["timeout_s"] == 18.0
+    assert captured["model"] == "test-large"
     assert response["output"]["answer"] == "fallback"
 
 @pytest.mark.asyncio
@@ -284,10 +300,19 @@ async def test_alert_requires_complete_source_provenance():
 @pytest.mark.asyncio
 async def test_entity_link_invariants_dry_run_and_unknown_id():
     repo = FakeRepo()
+    emb_http = FakeOpenAIEmbeddingHttp()
     linker = EntityLinker(
         FakeVector([{"score": 0.9, "payload": {"khoan_id": "k1"}}]),
         repo,
-        embedder=Embedder(BE2Config(embedding_provider="local", embedding_dimension=2), model=FakeModel()),
+        embedder=Embedder(
+            BE2Config(
+                embedding_provider="openai",
+                embedding_base_url="http://example.test/v1",
+                embedding_api_key="test",
+                embedding_dimension=2,
+            ),
+            http_client=emb_http,
+        ),
         reranker=Reranker(LLMRouter(BE2Config(), FakeLLM([{"output": {"items": [{"khoan_id": "k1", "score": 0.9}]}}]))),
         config=BE2Config(link_threshold=0.7),
     )

@@ -46,6 +46,22 @@ def test_decode_prefers_utf8_over_latin1_noise():
     assert "NĐ-CP" in out
 
 
+def test_repair_vietnamese_ocr_typos():
+    dirty = (
+        "Bộ Công Thương công bồ MƠng hạn ngạch thuế quan nhập khẩu đường. "
+        "không đỄtu giá hết hoặc trúng đâu giá không hệt, Hội đông đâu giá. "
+        "mặt hàng đương | |"
+    )
+    out = clean_text(dirty)
+    assert "công bố lượng" in out
+    assert "không đấu giá" in out
+    assert "trúng đấu giá" in out
+    assert "không hết" in out
+    assert "Hội đồng đấu giá" in out
+    assert "mặt hàng đường" in out
+    assert "| |" not in out
+
+
 def test_docx_roundtrip_paragraphs():
     try:
         import docx
