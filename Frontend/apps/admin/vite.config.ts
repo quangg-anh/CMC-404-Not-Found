@@ -18,15 +18,15 @@ const redirectPlugin = () => ({
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), redirectPlugin()],
-  base: '/admin/',
+  base: '/',
   server: {
+    host: '0.0.0.0',
     port: 5173,
     strictPort: true,
-    proxy: {
-      '/citizen': {
-        target: 'http://localhost:5174',
-        changeOrigin: true,
-      }
-    }
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: true,
   }
 })
