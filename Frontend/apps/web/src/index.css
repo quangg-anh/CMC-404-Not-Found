@@ -1,0 +1,66 @@
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background font-sans text-ink antialiased;
+  }
+
+  ::selection {
+    @apply bg-primary/15 text-ink;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-[3px] ring-primary/30 ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  .admin-card {
+    @apply rounded-card border border-border bg-surface shadow-soft;
+  }
+
+  .admin-btn {
+    @apply inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-control px-4 text-sm font-semibold transition-all duration-200;
+  }
+
+  .admin-btn-primary {
+    @apply admin-btn bg-primary text-white shadow-[0_8px_20px_-10px_rgba(37,87,214,0.55)] hover:-translate-y-0.5 hover:bg-primary-hover disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .admin-btn-secondary {
+    @apply admin-btn border border-border bg-white text-ink hover:border-primary/30 hover:bg-primary-soft/70;
+  }
+
+  .admin-btn-danger {
+    @apply admin-btn border border-border bg-white text-destructive hover:border-destructive/25 hover:bg-red-50;
+  }
+
+  .admin-input {
+    @apply w-full rounded-control border border-border bg-background/80 px-4 py-3 text-sm font-medium text-ink placeholder:text-muted/80 focus:border-primary/45 focus:outline-none focus:ring-[3px] focus:ring-primary/15;
+  }
+
+  .admin-page-enter {
+    animation: fade-in-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .admin-brand-gradient {
+    background: linear-gradient(120deg, #2557D6 0%, #3B6FE8 45%, #E85D0F 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .admin-heading-accent::after {
+    content: '';
+    display: block;
+    width: 2.75rem;
+    height: 3px;
+    margin-top: 0.55rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #2557D6, #E85D0F);
+  }
+}
