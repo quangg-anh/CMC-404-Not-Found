@@ -22,16 +22,8 @@
         "memoryMB": 1024
       }
     },
-    "Admin FrontEnd": {
-      "description": "Admin dashboard frontend (Vite/React)",
-      "category": "frontend",
-      "resources": {
-        "cpu": 1,
-        "memoryMB": 1024
-      }
-    },
-    "Citizen Frontend": {
-      "description": "Citizen portal frontend (Vite/React)",
+    "Frontend": {
+      "description": "Unified Vite/React app — citizen `/` + admin `/admin`",
       "category": "frontend",
       "resources": {
         "cpu": 1,

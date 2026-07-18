@@ -63,8 +63,8 @@ Hệ thống kết hợp các công nghệ tối ưu cho Web và AI hiện đạ
   - **MinIO:** S3-compatible Object Storage lưu file gốc.
 
 ### Frontend (TypeScript / React)
-- **Kiến trúc Monorepo (Vite):** Quản lý 2 apps độc lập (`admin`, `citizen`) và shared packages (`ui-legal`, `api-client`).
-- **State Management & UI:** React Query, TailwindCSS; Admin graph canvas dùng `react-force-graph-2d`.
+- **Kiến trúc Monorepo (Vite):** một app `web` (citizen `/` + admin `/admin`) và shared package `ui-legal`.
+- **State Management & UI:** React Router, TailwindCSS; Admin graph canvas dùng `react-force-graph-2d`.
 
 ---
 
@@ -97,7 +97,7 @@ docker-compose -f Data/docker-compose.data.yml --env-file Data/.env up -d
 > 2. `BE2_OPENAI_API_KEY` / `BE2_EMBEDDING_API_KEY` sống và đúng model embedding
 > 3. `Data/.env` `EMBEDDING_DIM=1536` khớp backend; recreate Qdrant nếu trước đó dùng 1024
 > 4. Chạy `cd Backend && pytest -vv` → 0 failed
-> 5. **Railway FE:** mỗi service Admin/Citizen phải có `VITE_API_URL=https://<backend-public>.up.railway.app` (HTTPS public, không dùng `*.railway.internal`), rồi **Redeploy** FE. Backend: `CORS_ALLOW_ALL=true`, listen `--host 0.0.0.0 --port $PORT`.
+> 5. **Railway FE:** một service Frontend với `VITE_API_URL=https://<backend-public>.up.railway.app` (HTTPS public, không dùng `*.railway.internal`), rồi **Redeploy**. Backend: `CORS_ALLOW_ALL=true`, listen `--host 0.0.0.0 --port $PORT`. Citizen: `/`, Admin: `/admin`.
 
 #### 2. Cài đặt Dependency và Khởi chạy Ứng dụng
 Sử dụng script PowerShell `run.ps1` để tự động tạo môi trường ảo Python (venv), cài đặt thư viện (`pip`, `npm`), seed dữ liệu mẫu, và bật các services:
@@ -115,10 +115,10 @@ Script này sẽ tự động bật các cửa sổ mới cho Backend (FastAPI),
 #### 3. Truy cập Hệ thống
 Sau khi khởi chạy thành công, bạn có thể truy cập qua các địa chỉ sau:
 
-- **Frontend Admin:** [http://localhost:5173/](http://localhost:5173/)
+- **Frontend (citizen):** [http://localhost:5173/](http://localhost:5173/)
+  - Truy cập công khai, không cần đăng nhập.
+- **Frontend (admin):** [http://localhost:5173/admin/](http://localhost:5173/admin/)
   - Tài khoản kiểm thử: `admin@local` / `admin123`
-- **Frontend Citizen:** [http://localhost:5174/](http://localhost:5174/)
-  - Truy cập công khai, tự do trải nghiệm không cần đăng nhập.
 - **Backend API (FastAPI Docs):** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Backend Gateway:** [http://localhost:8002/health](http://localhost:8002/health)
 

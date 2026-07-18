@@ -126,10 +126,10 @@ export default function DashboardPage() {
           <h2 className="text-base font-bold text-ink">Thao tác nhanh</h2>
           <div className="mt-4 grid grid-cols-2 gap-3">
             {[
-              { to: '/alerts', label: 'Xử lý cảnh báo', icon: WarningCircle, tone: 'text-destructive' },
-              { to: '/van-ban', label: 'Số hóa văn bản', icon: Article, tone: 'text-primary' },
-              { to: '/social', label: 'Crawl MXH', icon: ShareNetwork, tone: 'text-accent' },
-              { to: '/qa', label: 'QA nội bộ', icon: ListMagnifyingGlass, tone: 'text-success' },
+              { to: '/admin/alerts', label: 'Xử lý cảnh báo', icon: WarningCircle, tone: 'text-destructive' },
+              { to: '/admin/van-ban', label: 'Số hóa văn bản', icon: Article, tone: 'text-primary' },
+              { to: '/admin/social', label: 'Crawl MXH', icon: ShareNetwork, tone: 'text-accent' },
+              { to: '/admin/qa', label: 'QA nội bộ', icon: ListMagnifyingGlass, tone: 'text-success' },
             ].map(({ to, label, icon: IconCmp, tone }) => (
               <Link
                 key={to}
