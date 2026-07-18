@@ -1,0 +1,90 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "plan": "hobby",
+  "resourceLimits": {
+    "maxVCpuPerReplica": 8,
+    "maxMemoryMBPerReplica": 8192
+  },
+  "services": {
+    "API - 8000": {
+      "description": "Backend API (FastAPI / BE3, port 8000)",
+      "category": "backend-api",
+      "resources": {
+        "cpu": 1,
+        "memoryMB": 1024
+      }
+    },
+    "API - 8002": {
+      "description": "Backend API Gateway (BE2 intelligence gateway, port 8002)",
+      "category": "backend-api",
+      "resources": {
+        "cpu": 1,
+        "memoryMB": 1024
+      }
+    },
+    "Admin FrontEnd": {
+      "description": "Admin dashboard frontend (Vite/React)",
+      "category": "frontend",
+      "resources": {
+        "cpu": 1,
+        "memoryMB": 1024
+      }
+    },
+    "Citizen Frontend": {
+      "description": "Citizen portal frontend (Vite/React)",
+      "category": "frontend",
+      "resources": {
+        "cpu": 1,
+        "memoryMB": 1024
+      }
+    },
+    "Backend Worker": {
+      "description": "Arq worker for social/content background jobs",
+      "category": "worker",
+      "resources": {
+        "cpu": 0.5,
+        "memoryMB": 512
+      }
+    },
+    "worker-legal": {
+      "description": "Arq worker for legal document ingest/processing jobs",
+      "category": "worker",
+      "resources": {
+        "cpu": 0.5,
+        "memoryMB": 512
+      }
+    },
+    "Postgres": {
+      "description": "PostgreSQL 16 - operational metadata store",
+      "category": "database",
+      "resources": {
+        "cpu": 2,
+        "memoryMB": 2048
+      }
+    },
+    "Redis": {
+      "description": "Redis - job queue and cache",
+      "category": "database",
+      "resources": {
+        "cpu": 2,
+        "memoryMB": 2048
+      }
+    },
+    "neo4j": {
+      "description": "Neo4j - knowledge graph store",
+      "category": "database",
+      "resources": {
+        "cpu": 2,
+        "memoryMB": 2048
+      }
+    },
+    "minio": {
+      "description": "MinIO - S3-compatible object storage",
+      "category": "database",
+      "resources": {
+        "cpu": 2,
+        "memoryMB": 2048
+      }
+    }
+  }
+}
