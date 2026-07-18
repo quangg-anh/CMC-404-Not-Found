@@ -124,7 +124,9 @@ export default function AskPage() {
 
     const asOfVal = asOfRef.current;
     try {
-      const data = await apiPost<QAResponse>('/citizen/qa/ask', { question, as_of: asOfVal });
+      const payload: { question: string; as_of?: string } = { question };
+      if (asOfVal) payload.as_of = asOfVal;
+      const data = await apiPost<QAResponse>('/citizen/qa/ask', payload);
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === typingId

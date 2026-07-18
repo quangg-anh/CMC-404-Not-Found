@@ -169,9 +169,15 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     req_id = get_request_id()
-    details = {"errors": exc.errors()}
+    errors = exc.errors()
+    # Surface first error so FE toast is actionable (not only "Request validation failed").
+    first = errors[0] if errors else {}
+    loc = ".".join(str(x) for x in (first.get("loc") or ()) if x != "body")
+    msg = str(first.get("msg") or "Request validation failed")
+    summary = f"{loc}: {msg}" if loc else msg
+    details = {"errors": errors}
     body = error_response(
-        message="Request validation failed",
+        message=summary,
         request_id=req_id,
         details=details,
         code="validation_error",

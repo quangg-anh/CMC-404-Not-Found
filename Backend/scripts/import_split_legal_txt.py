@@ -30,6 +30,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 from app.api.deps import get_db_pool, get_embedder, get_minio, get_neo4j_driver, get_qdrant_client
+from app.config import get_config
 from app.pipelines.legal.normalize import normalize_so_hieu
 from app.services.diff_facade import LegalDiffFacade
 
@@ -163,7 +164,7 @@ async def main() -> int:
     driver = await get_neo4j_driver()
     pool = await get_db_pool()
     qdrant = None if args.no_vectors else await get_qdrant_client()
-    embedder = None if args.no_vectors else await get_embedder()
+    embedder = None if args.no_vectors else await get_embedder(get_config())
     minio = await get_minio()
     existing = await _existing_so_hieu(driver) if args.skip_existing else set()
     facade = LegalDiffFacade(pool=pool, neo4j_driver=driver, qdrant=qdrant, embedder=embedder, minio=minio)

@@ -126,17 +126,16 @@ async def get_llm_router(config: BE2Config = Depends(get_config)) -> LLMRouter:
     return _llm_router
 
 
-async def get_embedder(config: BE2Config | None = None) -> Embedder | None:
-    """Retrieve the OpenAI-compatible embedder used for real vector retrieval.
+async def get_embedder(config: BE2Config = Depends(get_config)) -> Embedder | None:
+    """Retrieve the OpenAI-compatible embedder (FastAPI Depends(get_config)).
 
-    FastAPI injects config via Depends(get_config) at route level; scripts must
-    call ``await get_embedder()`` or ``await get_embedder(get_config())``.
+    Scripts: ``await get_embedder(get_config())`` — pass config explicitly so FastAPI
+    dependency injection is not required.
     """
     global _embedder
     if _embedder is None:
         try:
-            cfg = config if isinstance(config, BE2Config) else get_config()
-            _embedder = Embedder(config=cfg)
+            _embedder = Embedder(config=config)
         except Exception as exc:
             logger.warning("Embedder init failed — Qdrant vector indexing will be skipped: %s", exc)
             return None
