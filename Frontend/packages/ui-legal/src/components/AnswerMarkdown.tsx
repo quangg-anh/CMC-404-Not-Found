@@ -84,7 +84,7 @@ export function AnswerMarkdown({ content, className, density = 'comfortable' }: 
           return (
             <div
               key={idx}
-              className="flex gap-3 rounded-2xl bg-slate-50/80 px-4 py-2.5 ring-1 ring-slate-100"
+              className="flex gap-3 rounded-xl bg-slate-50/90 px-3.5 py-2.5 ring-1 ring-slate-100/90 transition-colors duration-200"
             >
               <div className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
               <p className={bulletTextClass}>{renderInlineMarkdown(line.slice(2))}</p>
@@ -110,9 +110,9 @@ export function AnswerMarkdown({ content, className, density = 'comfortable' }: 
           }
           return (
             <div key={idx} className="space-y-2">
-              <div className="mt-1 flex items-center gap-2 rounded-2xl bg-blue-50 px-4 py-2.5 text-blue-900 ring-1 ring-blue-100 first:mt-0">
+              <div className="mt-1 flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-50 to-sky-50/80 px-3.5 py-2 text-blue-900 ring-1 ring-blue-100/80 first:mt-0">
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" aria-hidden />
-                <h3 className="text-sm font-black uppercase tracking-wide">{title}</h3>
+                <h3 className="text-sm font-bold tracking-wide">{title}</h3>
               </div>
               {rest ? <p className={bodyClass}>{renderInlineMarkdown(rest)}</p> : null}
             </div>

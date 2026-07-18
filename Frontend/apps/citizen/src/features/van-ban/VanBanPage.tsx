@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, BookOpen, Clock, ShieldCheck, TreeStructure, BookmarkSimple, Spinner, FileText, DownloadSimple, FilePdf } from '@phosphor-icons/react';
-import { Link } from 'react-router-dom';
+import { Clock, ShieldCheck, TreeStructure, BookmarkSimple, Spinner, FileText, DownloadSimple, FilePdf } from '@phosphor-icons/react';
 import { apiGet, fileUrl } from '../../lib/api';
+import { CitizenHeader } from '../../components/CitizenChrome';
+import { Atmosphere } from '../../components/Atmosphere';
 
 interface Khoan {
   khoan_id?: string;
@@ -84,26 +85,16 @@ export default function VanBanPage() {
   }, [selectedId]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 text-slate-500 hover:text-brand font-semibold text-sm transition-colors">
-            <ArrowLeft size={16} weight="bold" /> Quay lại Trang chủ
-          </Link>
-          <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <BookOpen size={18} className="text-brand" weight="fill" />
-            Tra cứu Văn bản
-          </div>
-          <div className="w-24"></div>
-        </div>
-      </header>
+    <div className="relative flex min-h-screen flex-col bg-background font-sans">
+      <Atmosphere tone="section" />
+      <CitizenHeader />
 
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex flex-col md:flex-row gap-8">
+      <main id="main" className="relative mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 md:flex-row">
         {/* Left: document list */}
-        <aside className="w-full md:w-1/3 lg:w-1/4 shrink-0">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 sticky top-20 shadow-[0_2px_10px_rgb(0,0,0,0.02)]">
-            <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-4 pb-4 border-b border-slate-100">
-              <TreeStructure size={20} className="text-brand" /> Văn bản công khai
+        <aside className="w-full shrink-0 md:w-1/3 lg:w-1/4">
+          <div className="sticky top-24 rounded-[28px] border-2 border-border bg-white p-5 shadow-soft">
+            <h3 className="mb-4 flex items-center gap-2 border-b-2 border-border pb-4 font-display text-xl font-bold text-primary">
+              <TreeStructure size={24} className="text-civic" aria-hidden /> Văn bản công khai
             </h3>
 
             {listLoading ? (
@@ -120,13 +111,16 @@ export default function VanBanPage() {
                   return (
                     <button
                       key={id}
+                      type="button"
                       onClick={() => setSelectedId(id)}
-                      className={`w-full text-left py-2.5 px-3 rounded-lg text-sm font-medium transition-colors ${
-                        active ? 'bg-brand/5 text-brand border border-brand/10 font-semibold' : 'text-slate-600 hover:bg-slate-50 border border-transparent'
+                      className={`w-full rounded-2xl border-2 px-4 py-3 text-left transition duration-200 ${
+                        active
+                          ? 'border-civic bg-civicSoft text-civicDark'
+                          : 'border-transparent text-primary hover:border-border hover:bg-background'
                       }`}
                     >
-                      <div className="font-bold text-xs uppercase tracking-wide mb-0.5">{d.so_hieu ?? id}</div>
-                      <div className="line-clamp-2 text-slate-500">{d.ten ?? 'Văn bản pháp luật'}</div>
+                      <div className="mb-1 text-base font-extrabold">{d.so_hieu ?? id}</div>
+                      <div className="line-clamp-2 text-base text-muted">{d.ten ?? 'Văn bản pháp luật'}</div>
                     </button>
                   );
                 })}
