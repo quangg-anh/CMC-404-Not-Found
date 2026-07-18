@@ -127,7 +127,34 @@ async def reindex_khoan_from_neo4j(
             vectors = await embedder.embed_texts([r["noi_dung"].strip() for r in batch])
         except Exception as exc:  # noqa: BLE001
             last_error = f"embed: {exc}"
-            logger.warning("reindex: embedding batch failed: %s", exc)
+            details = getattr(exc, "details", None)
+            if details:
+                last_error = f"embed: {exc} | {details}"
+            logger.warning("reindex: embedding batch failed: %s", last_error)
+            msg = str(exc).lower()
+            # Hard-stop on billing / auth — retrying 130k rows is pointless.
+            if any(
+                k in msg
+                for k in (
+                    "tokens limit",
+                    "credit",
+                    "402",
+                    "401",
+                    "no credentials",
+                    "invalid api key",
+                    "insufficient",
+                )
+            ):
+                return {
+                    "status": "error",
+                    "van_ban_id": van_ban_id,
+                    "total": total,
+                    "indexed": indexed,
+                    "message": (
+                        f"Dừng reindex sớm vì lỗi embedding (thường hết credit / sai model): {exc}. "
+                        f"Đã index {indexed}/{total}."
+                    ),
+                }
             continue
         points = []
         for r, vector in zip(batch, vectors):

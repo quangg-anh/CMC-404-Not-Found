@@ -14,6 +14,39 @@ def normalize_text(text: str) -> str:
     return " ".join(text.strip().split())
 
 
+def _extract_embedding_vectors(data: Any) -> list[list[float]]:
+    """Parse OpenAI-compatible embedding payloads, including common gateway variants."""
+    if not isinstance(data, dict):
+        return []
+
+    items = data.get("data")
+    if isinstance(items, dict):
+        items = [items]
+    if isinstance(items, list) and items:
+        keyed = []
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            emb = item.get("embedding")
+            if emb is None:
+                emb = item.get("embeddings") or item.get("vector")
+            if isinstance(emb, list) and emb and isinstance(emb[0], (int, float)):
+                keyed.append((item.get("index", i), [float(x) for x in emb]))
+        if keyed:
+            keyed.sort(key=lambda x: x[0])
+            return [v for _, v in keyed]
+
+    # Top-level single vector variants
+    for key in ("embedding", "embeddings", "vector"):
+        emb = data.get(key)
+        if isinstance(emb, list) and emb and isinstance(emb[0], (int, float)):
+            return [[float(x) for x in emb]]
+        if isinstance(emb, list) and emb and isinstance(emb[0], list):
+            return [[float(x) for x in row] for row in emb if isinstance(row, list)]
+
+    return []
+
+
 class Embedder:
     """OpenAI-compatible embeddings only (``POST {base}/embeddings``).
 
@@ -122,15 +155,36 @@ class Embedder:
                 )
             response.raise_for_status()
             data = response.json()
-            items = data.get("data", [])
-            if not isinstance(items, list):
-                items = []
-            items_sorted = sorted(items, key=lambda x: x.get("index", 0))
-            raw = [item["embedding"] for item in items_sorted if isinstance(item, dict) and "embedding" in item]
+            # Some gateways (9router → OpenRouter) return HTTP 200 with {"error": ...}.
+            if isinstance(data, dict) and data.get("error"):
+                err = data["error"]
+                if isinstance(err, dict):
+                    msg = str(err.get("message") or err)
+                    code = err.get("code")
+                else:
+                    msg = str(err)
+                    code = None
+                raise ExternalServiceError(
+                    f"OpenAI-compatible embedding error: {msg}",
+                    details={
+                        "provider": "openai",
+                        "url": url,
+                        "model": self.config.embedding_model,
+                        "status_code": response.status_code,
+                        "error_code": code,
+                        "body": (response.text or "")[:400],
+                    },
+                )
+            raw = _extract_embedding_vectors(data)
             if len(raw) != len(batch):
                 raise ExternalServiceError(
                     "OpenAI-compatible embedding count mismatch",
-                    details={"expected": len(batch), "actual": len(raw)},
+                    details={
+                        "expected": len(batch),
+                        "actual": len(raw),
+                        "body_keys": list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+                        "body": (response.text or "")[:300],
+                    },
                 )
             return TypeAdapter(list[list[float]]).validate_python(raw)
         except ExternalServiceError:
