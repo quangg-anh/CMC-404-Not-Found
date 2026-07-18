@@ -24,10 +24,18 @@ Get-ChildItem "$DIR/van_ban_mau/*.cypher" | ForEach-Object {
   Get-Content $_.FullName -Raw | docker exec -i legal_neo4j cypher-shell -u neo4j -p $NEO4J_PW
 }
 
-Write-Host "[3/4] Postgres: seed users + lineage"
+Write-Host "[3/5] Postgres: apply incremental migrations (idempotent)"
+Get-ChildItem "$ROOT/schema/postgres/*.sql" | Sort-Object Name | ForEach-Object {
+  # 001-003 usually applied at first init; re-running later files with IF NOT EXISTS is safe.
+  if ($_.Name -match '^(001_|002_|003_)') { return }
+  Write-Host "  - $($_.Name)"
+  Get-Content $_.FullName -Raw | docker exec -i legal_postgres psql -U $PG_USER -d $PG_DB
+}
+
+Write-Host "[4/5] Postgres: seed users + lineage"
 Get-Content "$DIR/users_seed.sql" -Raw | docker exec -i legal_postgres psql -U $PG_USER -d $PG_DB
 
-Write-Host "[4/4] Qdrant: ensure collections (dim=$DIM)"
+Write-Host "[5/5] Qdrant: ensure collections (dim=$DIM)"
 foreach ($c in 'khoan','baidang','chude') {
   $body = @{ vectors = @{ size = $DIM; distance = 'Cosine' } } | ConvertTo-Json
   try { Invoke-RestMethod -Method Put -Uri "$QDRANT/collections/$c" -ContentType 'application/json' -Body $body | Out-Null } catch {}

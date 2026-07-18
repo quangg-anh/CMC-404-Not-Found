@@ -107,27 +107,31 @@ class SocialAlertFacade:
         }
 
     async def list_topics(self) -> list[dict[str, Any]]:
-        """List current legal topics monitored on social channels from Neo4j."""
+        """List current legal topics monitored on social channels from Neo4j (source of truth)."""
         items: list[dict[str, Any]] = []
         if self.driver and hasattr(self.driver, "session"):
             try:
-                query = "MATCH (t:ChuDe) RETURN t ORDER BY coalesce(t.post_count, 0) DESC, t.ten ASC LIMIT 100"
+                # Count related posts instead of relying on a missing `post_count` property.
+                query = """
+                MATCH (t:ChuDe)
+                OPTIONAL MATCH (t)<-[:THAO_LUAN_VE]-(b:BaiDang)
+                WITH t, count(b) AS post_count
+                RETURN t {.*, post_count: post_count} AS topic
+                ORDER BY post_count DESC, coalesce(t.ten, t.name, t.slug, '') ASC
+                LIMIT 100
+                """
                 async with self.driver.session() as session:
                     res = await session.run(query)
                     async for record in res:
-                        items.append(dict(record["t"]))
+                        topic = record["topic"]
+                        data = dict(topic) if topic is not None else {}
+                        data["post_count"] = int(data.get("post_count") or 0)
+                        data["so_bai"] = data["post_count"]
+                        items.append(self._json_safe(data))
             except Exception:
-                logger.warning("Failed to list topics from Neo4j, falling back to Postgres", exc_info=True)
+                logger.warning("Failed to list topics from Neo4j", exc_info=True)
 
-        if not items and self.pool and hasattr(self.pool, "acquire"):
-            try:
-                async with self.pool.acquire() as conn:
-                    rows = await conn.fetch("SELECT * FROM topics ORDER BY id ASC LIMIT 100")
-                    for r in rows:
-                        items.append(dict(r))
-            except Exception:
-                logger.warning("Failed to list topics from Postgres", exc_info=True)
-
+        # Topics live in Neo4j only — no Postgres `topics` table in schema.
         return items
 
     async def list_posts(
@@ -136,7 +140,7 @@ class SocialAlertFacade:
         status: str | None = None,
         needs_review: bool | None = None,
     ) -> list[dict[str, Any]]:
-        """List social posts with topic / review status filtering from Neo4j / Postgres."""
+        """List social posts with topic / review status filtering from Neo4j."""
         items: list[dict[str, Any]] = []
         if self.driver and hasattr(self.driver, "session"):
             try:
@@ -154,21 +158,7 @@ class SocialAlertFacade:
                             continue
                         items.append(data)
             except Exception:
-                logger.warning("Failed to list posts from Neo4j, falling back to Postgres", exc_info=True)
-
-        if not items and self.pool and hasattr(self.pool, "acquire"):
-            try:
-                async with self.pool.acquire() as conn:
-                    rows = await conn.fetch("SELECT * FROM bai_dang ORDER BY ngay_dang DESC LIMIT 100")
-                    for r in rows:
-                        data = dict(r)
-                        if topic_slug and data.get("chu_de") != topic_slug:
-                            continue
-                        if needs_review is not None and data.get("needs_review", False) != needs_review:
-                            continue
-                        items.append(data)
-            except Exception:
-                logger.warning("Failed to list posts from Postgres", exc_info=True)
+                logger.warning("Failed to list posts from Neo4j", exc_info=True)
 
         return items
 
@@ -219,15 +209,48 @@ class SocialAlertFacade:
             "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
         }
 
+    async def _fetch_alert_rows(self, conn: Any, alert_id: str | None = None) -> list[Any]:
+        """Fetch alerts, tolerating DBs that have not applied 009_alert_provenance yet."""
+        if alert_id:
+            full_sql = (
+                "SELECT id, chu_de, khoan_ids, severity, volume, status, signals, provenance_status, created_at "
+                "FROM alerts WHERE id = $1"
+            )
+            base_sql = (
+                "SELECT id, chu_de, khoan_ids, severity, volume, status, created_at "
+                "FROM alerts WHERE id = $1"
+            )
+            try:
+                row = await conn.fetchrow(full_sql, alert_id)
+            except Exception as exc:
+                if "signals" not in str(exc) and "provenance_status" not in str(exc):
+                    raise
+                row = await conn.fetchrow(base_sql, alert_id)
+            return [row] if row else []
+
+        full_sql = (
+            "SELECT id, chu_de, khoan_ids, severity, volume, status, signals, provenance_status, created_at "
+            "FROM alerts ORDER BY created_at DESC LIMIT 100"
+        )
+        base_sql = (
+            "SELECT id, chu_de, khoan_ids, severity, volume, status, created_at "
+            "FROM alerts ORDER BY created_at DESC LIMIT 100"
+        )
+        try:
+            return await conn.fetch(full_sql)
+        except Exception as exc:
+            if "signals" not in str(exc) and "provenance_status" not in str(exc):
+                raise
+            logger.warning("alerts.signals missing — apply Data/schema/postgres/009_alert_provenance.sql")
+            return await conn.fetch(base_sql)
+
     async def list_alerts(self, severity: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
         """List alerts generated from BE2 claim check and NLI signal detection in real DB."""
         items: list[dict[str, Any]] = []
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
-                    rows = await conn.fetch(
-                        "SELECT id, chu_de, khoan_ids, severity, volume, status, signals, provenance_status, created_at FROM alerts ORDER BY created_at DESC LIMIT 100"
-                    )
+                    rows = await self._fetch_alert_rows(conn)
                     for r in rows:
                         data = self._alert_from_row(dict(r))
                         if severity and data.get("severity") != severity:
@@ -245,11 +268,9 @@ class SocialAlertFacade:
         if self.pool and hasattr(self.pool, "acquire"):
             try:
                 async with self.pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        "SELECT id, chu_de, khoan_ids, severity, volume, status, signals, provenance_status, created_at FROM alerts WHERE id = $1", alert_id
-                    )
-                    if row:
-                        return self._alert_from_row(dict(row))
+                    rows = await self._fetch_alert_rows(conn, alert_id=alert_id)
+                    if rows:
+                        return self._alert_from_row(dict(rows[0]))
             except Exception:
                 logger.warning("Failed to get alert detail %s from Postgres", alert_id, exc_info=True)
 
