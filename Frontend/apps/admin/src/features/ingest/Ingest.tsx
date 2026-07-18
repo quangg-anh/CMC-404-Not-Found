@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { UploadSimple, FileText, Spinner, CheckCircle, Clock, WarningCircle, ArrowClockwise, Paperclip, X, Trash } from '@phosphor-icons/react';
+import { UploadSimple, FileText, Spinner, CheckCircle, Clock, WarningCircle, ArrowClockwise, Paperclip, X, Trash, MagnifyingGlass } from '@phosphor-icons/react';
 import { apiDelete, apiGet, apiPost, apiUpload } from '../../lib/api';
 
 interface IngestResponse {
@@ -73,6 +73,7 @@ export default function IngestPage() {
   const [documents, setDocuments] = useState<VanBanItem[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const loadJobs = () => {
     setJobsLoading(true);
@@ -157,6 +158,14 @@ export default function IngestPage() {
       setStage('idle');
     }
   };
+
+  const filteredDocs = documents.filter(doc => {
+    const q = searchQuery.toLowerCase();
+    const soHieu = (doc.so_hieu || '').toLowerCase();
+    const ten = (doc.ten || '').toLowerCase();
+    const tieuDe = (doc.tieu_de || '').toLowerCase();
+    return soHieu.includes(q) || ten.includes(q) || tieuDe.includes(q);
+  });
 
   return (
     <div className="max-w-4xl mx-auto pb-20 animate-fade-in-up">
@@ -275,47 +284,64 @@ export default function IngestPage() {
         )}
       </form>
 
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-slate-900">Văn bản đã số hóa</h3>
-        <button onClick={loadDocuments} className="text-sm font-bold text-slate-500 hover:text-brand flex items-center gap-1.5 transition-colors">
-          <ArrowClockwise size={16} /> Làm mới
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <h3 className="text-lg font-bold text-slate-900">Văn bản đã số hóa <span className="text-slate-400 text-sm font-medium ml-1">({filteredDocs.length})</span></h3>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Tìm số hiệu, tên..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand w-full sm:w-64 transition-all"
+            />
+          </div>
+          <button onClick={loadDocuments} className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:text-brand hover:border-brand/30 flex items-center gap-1.5 transition-all shadow-sm shrink-0">
+            <ArrowClockwise size={16} /> Làm mới
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-100 mb-10">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-10">
         {documentsLoading ? (
           <div className="p-8 text-center text-slate-400 font-semibold flex items-center justify-center gap-2">
             <Spinner size={18} className="animate-spin" /> Đang tải danh sách văn bản…
           </div>
-        ) : documents.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 font-semibold">Chưa có văn bản đã số hóa.</div>
+        ) : filteredDocs.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 font-medium text-sm">Không tìm thấy văn bản phù hợp.</div>
         ) : (
-          documents.map((doc) => {
-            const id = doc.vb_id || doc.id || doc.so_hieu || '';
-            const title = doc.tieu_de || doc.ten || doc.so_hieu || id;
-            return (
-              <div key={id} className="p-5 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
-                    <FileText size={20} weight="fill" />
+          <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
+            {filteredDocs.map((doc) => {
+              const id = doc.vb_id || doc.id || doc.so_hieu || '';
+              const title = doc.tieu_de || doc.ten || doc.so_hieu || id;
+              return (
+                <div key={id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between gap-4 group">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-brand/5 text-brand flex items-center justify-center shrink-0">
+                      <FileText size={18} weight="fill" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-800 text-sm truncate group-hover:text-brand transition-colors">{title}</div>
+                      <div className="text-xs text-slate-400 font-medium truncate mt-0.5">
+                        <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold mr-2">{doc.so_hieu || 'N/A'}</span>
+                        {doc.source_filename || id}{doc.ngay_ban_hanh ? ` · ${doc.ngay_ban_hanh}` : ''}
+                      </div>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <div className="font-bold text-slate-800 text-sm truncate">{title}</div>
-                    <div className="text-xs text-slate-400 font-medium truncate">{doc.source_filename || doc.so_hieu || id}{doc.ngay_ban_hanh ? ` · ${doc.ngay_ban_hanh}` : ''}</div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => deleteDocument(doc)}
+                    disabled={deletingId === id}
+                    className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center transition-all disabled:opacity-50 shrink-0 opacity-100 sm:opacity-50 sm:group-hover:opacity-100"
+                    title="Xóa văn bản"
+                  >
+                    {deletingId === id ? <Spinner size={16} className="animate-spin" /> : <Trash size={18} />}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => deleteDocument(doc)}
-                  disabled={deletingId === id}
-                  className="px-3 py-2 rounded-xl text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {deletingId === id ? <Spinner size={16} className="animate-spin" /> : <Trash size={16} weight="bold" />}
-                  Xóa
-                </button>
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
       </div>
 
