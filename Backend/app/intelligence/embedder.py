@@ -19,7 +19,13 @@ class Embedder:
 
     Works against any provider that speaks the OpenAI embeddings API: Ollama ``/v1``, vLLM,
     LM Studio, OpenAI, 9router, etc. No in-process torch / sentence-transformers model.
+
+    Some proxies only return one vector when ``input`` is an array — ``_embed_openai`` then
+    retries one text at a time.
     """
+
+    # Soft char cap: keeps requests under typical 8k-token embedding limits (VN text denser).
+    _MAX_CHARS = 6000
 
     def __init__(
         self,
@@ -43,12 +49,13 @@ class Embedder:
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             raise ValidationError("texts must not be empty")
-        normalized = [normalize_text(t) for t in texts]
+        normalized = [self._prep(t) for t in texts]
         if any(not t for t in normalized):
             raise ValidationError("text item must not be empty")
         vectors: list[list[float]] = []
-        for start in range(0, len(normalized), self.config.embedding_batch_size):
-            batch = normalized[start : start + self.config.embedding_batch_size]
+        batch_size = max(1, int(self.config.embedding_batch_size or 1))
+        for start in range(0, len(normalized), batch_size):
+            batch = normalized[start : start + batch_size]
             batch_vectors = await asyncio.wait_for(
                 self._embed_openai(batch),
                 timeout=self.config.embedding_timeout_s,
@@ -57,20 +64,48 @@ class Embedder:
         self._validate_vectors(vectors, len(normalized))
         return vectors
 
+    @classmethod
+    def _prep(cls, text: str) -> str:
+        t = normalize_text(text)
+        if len(t) > cls._MAX_CHARS:
+            return t[: cls._MAX_CHARS]
+        return t
+
     async def _embed_openai(self, batch: list[str]) -> list[list[float]]:
         if self.config.embedding_base_url is None:
             raise ValidationError("BE2_EMBEDDING_BASE_URL is required for openai embedding provider")
+        try:
+            return await self._embed_openai_once(batch)
+        except ExternalServiceError as exc:
+            # Proxies (e.g. some OpenAI-compatible gateways) often return 1 vector for an
+            # array input — fall back to sequential single-text embeds.
+            details = getattr(exc, "details", None) or {}
+            if len(batch) > 1 and "count mismatch" in str(exc):
+                out: list[list[float]] = []
+                for text in batch:
+                    out.extend(await self._embed_openai_once([text]))
+                return out
+            if len(batch) > 1 and details.get("expected") and details.get("actual") != details.get("expected"):
+                out = []
+                for text in batch:
+                    out.extend(await self._embed_openai_once([text]))
+                return out
+            raise
+
+    async def _embed_openai_once(self, batch: list[str]) -> list[list[float]]:
         client = self._http or httpx.AsyncClient(timeout=self.config.embedding_timeout_s)
         close = self._http is None
         headers = {"Content-Type": "application/json"}
         if self.config.embedding_api_key:
             headers["Authorization"] = f"Bearer {self.config.embedding_api_key}"
         url = f"{str(self.config.embedding_base_url).rstrip('/')}/embeddings"
+        # OpenAI accepts string | string[]; some proxies mishandle arrays — send scalar when n=1.
+        payload_input: str | list[str] = batch[0] if len(batch) == 1 else batch
         try:
             response = await client.post(
                 url,
                 headers=headers,
-                json={"model": self.config.embedding_model, "input": batch},
+                json={"model": self.config.embedding_model, "input": payload_input},
             )
             if response.status_code >= 400:
                 detail = (response.text or "")[:400]
@@ -91,8 +126,10 @@ class Embedder:
             response.raise_for_status()
             data = response.json()
             items = data.get("data", [])
+            if not isinstance(items, list):
+                items = []
             items_sorted = sorted(items, key=lambda x: x.get("index", 0))
-            raw = [item["embedding"] for item in items_sorted]
+            raw = [item["embedding"] for item in items_sorted if isinstance(item, dict) and "embedding" in item]
             if len(raw) != len(batch):
                 raise ExternalServiceError(
                     "OpenAI-compatible embedding count mismatch",
