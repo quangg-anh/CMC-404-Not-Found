@@ -106,7 +106,10 @@ async def test_rag_qa_engine_citation_validation_and_fail_closed():
         data_valid = res_valid.json()["data"]
         assert data_valid["confidence"] == "high"
         assert len(data_valid["citations"]) > 0
-        assert data_valid["citations"][0]["quote"] in "Người nộp thuế phải kê khai đúng hạn theo quy định tại Khoản 15/2020/ND-CP::D1.K1."
+        assert data_valid["citations"][0].get("khoan_id")
+        # UI returns compact refs (no long quote body).
+        assert data_valid["citations"][0].get("quote", "") == ""
+        assert "Điều" in (data_valid["citations"][0].get("dieu") or "")
 
         # Case 2: Hallucination prompt -> Fail-Closed behavior.
         # Include so_hieu so retrieval bypasses topic-keyword gating; FakeLLMClient triggers on

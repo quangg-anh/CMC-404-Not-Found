@@ -392,6 +392,43 @@ class QAService:
         return False
 
     @classmethod
+    def _clip_ctx(cls, text: str, limit: int = 220) -> str:
+        t = " ".join((text or "").split())
+        return t if len(t) <= limit else t[:limit].rstrip()
+
+    @classmethod
+    def _compact_citations(cls, citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Return provision refs only (số hiệu / Điều / Khoản) — no long quote body for UI."""
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for cit in citations:
+            kid = str(cit.get("khoan_id") or "").strip()
+            if not kid or kid in seen:
+                continue
+            seen.add(kid)
+            doc = kid.split("::", 1)[0] if "::" in kid else str(cit.get("van_ban") or kid)
+            m = re.search(r"::D(\d+)(?:\.K(\d+))?", kid, re.IGNORECASE)
+            dieu_n = m.group(1) if m else ""
+            khoan_n = m.group(2) if m and m.group(2) else ""
+            dieu_label = f"Điều {dieu_n}" if dieu_n else str(cit.get("dieu") or "")
+            khoan_label = f"Khoản {khoan_n}" if khoan_n else ""
+            ref_parts = [p for p in [doc, dieu_label, khoan_label] if p]
+            out.append(
+                {
+                    "khoan_id": kid,
+                    "van_ban": doc,
+                    "dieu": dieu_label,
+                    "khoan": khoan_label,
+                    "ref": " · ".join(ref_parts),
+                    # Empty quote: UI shows ref cards only (validation already done upstream).
+                    "quote": "",
+                    "score": cit.get("score"),
+                    "validation_source": cit.get("validation_source"),
+                }
+            )
+        return out
+
+    @classmethod
     def _narrow_citations(
         cls,
         answer: str,
@@ -959,7 +996,7 @@ class QAService:
                 task="qa",
                 prompt=prompt,
                 schema={"required": ["answer", "citations"]},
-                complexity="high",
+                complexity="low",
             )
             answer = str(llm_out.get("answer") or "").strip()
             if not answer:
@@ -1056,24 +1093,20 @@ class QAService:
                 reason="Retrieved context does not cover the question topic.",
             )
 
-        context_limit = 3 if audience == "citizen" else 4
+        context_limit = 2 if audience == "citizen" else 3
         candidates = candidates[:context_limit]
-        retrieved_context = "\n".join(f"[{c.khoan_id}] {c.noi_dung}" for c in candidates)
+        retrieved_context = "\n".join(
+            f"[{c.khoan_id}] {self._clip_ctx(c.noi_dung)}" for c in candidates
+        )
         prompt = (
             "retrieved_context:\n"
             f"{retrieved_context}\n\n"
             f"Câu hỏi: {question}\n"
-            "Bạn là trợ lý pháp lý Việt Nam. Trả lời chuẩn mực pháp luật Việt Nam.\n"
-            "- Chỉ gắn số hiệu/Điều/Khoản khi lấy từ retrieved_context và đúng chủ đề.\n"
-            "- Không viện dẫn chỉ vì trùng từ 'thuế', '100 triệu', 'cá nhân', 'model'.\n"
-            "- Nếu ngữ cảnh lệch chủ đề (vd. thuế nhập khẩu khi hỏi TNCN/cờ bạc): bỏ ngữ cảnh lệch; "
-            "trả lời theo nguyên tắc pháp luật Việt Nam; citations = [].\n"
-            "- Với cờ bạc/đánh bạc: ưu tiên trách nhiệm hình sự/hành chính (có thể phạt tù tùy trường hợp) "
-            "trước nghĩa vụ thuế; không kết thúc bằng 'chưa đủ căn cứ' mà không nêu hệ quả pháp lý.\n"
-            "- Khi đủ căn cứ trong ngữ cảnh: 1–3 điều khoản chuẩn nhất.\n"
-            "- Không bịa số Điều/Khoản/mức tiền nếu ngữ cảnh không có.\n"
-            "Trả về JSON: answer (string), citations (mảng {khoan_id, quote} hoặc []), "
-            "confidence (high|medium|low)."
+            "Trả lời NGẮN (~120 từ), pháp luật Việt Nam.\n"
+            "- Chỉ gắn số hiệu/Điều/Khoản đúng chủ đề từ ngữ cảnh; không chép nguyên văn.\n"
+            "- Lệch chủ đề → citations=[]; trả lời nguyên tắc VN.\n"
+            "- Cờ bạc: ưu tiên hình sự/hành chính trước thuế.\n"
+            "JSON: answer, citations (tối đa 2 phần tử {khoan_id, quote ngắn} hoặc []), confidence."
         )
         try:
             llm_out = await self.router.complete(
@@ -1136,7 +1169,7 @@ class QAService:
         # Prefer LLM citations; if empty but we have retrieved candidates that the answer references, seed them.
         if not validated_citations and candidates and self._answer_has_legal_refs(raw_answer):
             seeded = [
-                {"khoan_id": c.khoan_id, "quote": c.noi_dung}
+                {"khoan_id": c.khoan_id, "quote": self._clip_ctx(c.noi_dung, 120)}
                 for c in candidates
                 if c.khoan_id and self._strip_accents(c.khoan_id) in self._strip_accents(raw_answer)
             ]
@@ -1147,11 +1180,36 @@ class QAService:
 
         doc_q = bool(self._SO_HIEU_RE.search(question) or self._KHOAN_ID_RE.search(question))
         validated_citations = self._narrow_citations(
-            raw_answer, validated_citations or [], question, max_n=5 if doc_q else 3
+            raw_answer, validated_citations or [], question, max_n=3 if doc_q else 2
         )
 
-        # 5. Fail-Closed Strategy (exact-match + topic-relevant citation verification)
+        # 5. Fail-Closed: hallucinated citations → refuse; no citations → keep short LLM answer.
         if not is_valid or not validated_citations:
+            if raw_citations:
+                return {
+                    "answer": "Không đủ căn cứ hoặc trích dẫn pháp lý không khớp nguyên văn để trả lời an toàn câu hỏi này.",
+                    "citations": [],
+                    "confidence": "low",
+                    "graph_paths": [],
+                    "graph_paths_status": "not_requested",
+                    "graph_paths_reason": "No valid citations after verification",
+                    "audience": audience,
+                    "refuse_reason": errors or ["All citations failed exact-match or topic-relevance verification."],
+                }
+            if raw_answer.strip():
+                return {
+                    "answer": raw_answer,
+                    "citations": [],
+                    "confidence": "low",
+                    "graph_paths": [],
+                    "graph_paths_status": "not_requested",
+                    "graph_paths_reason": "No valid citations after verification",
+                    "audience": audience,
+                    "as_of": as_of_val,
+                    "notices": notices,
+                    "unverified": True,
+                    "refuse_reason": errors or ["No on-topic citations."],
+                }
             return {
                 "answer": "Không đủ căn cứ hoặc trích dẫn pháp lý không khớp nguyên văn để trả lời an toàn câu hỏi này.",
                 "citations": [],
@@ -1163,12 +1221,9 @@ class QAService:
                 "refuse_reason": errors or ["All citations failed exact-match or topic-relevance verification."],
             }
 
-        # 6. Idea 03 — entailment faithfulness: the citation must SUPPORT the answer, not just exist.
-        # Keep entailment validation for both portals: a verbatim citation can still contradict
-        # the generated conclusion, which must fail closed even on the latency-sensitive citizen UI.
+        # 6. Entailment check (local heuristic — cheap; catches contradicting answers).
         faith = await self._verify_faithfulness(raw_answer, validated_citations, candidates)
         if faith["contradiction"]:
-            # Verbatim citation that contradicts the answer = subtle hallucination. Refuse.
             return {
                 "answer": "Câu trả lời mâu thuẫn với chính căn cứ pháp lý được trích dẫn, nên đã bị hệ thống từ chối để bảo đảm an toàn.",
                 "citations": [],
@@ -1188,11 +1243,13 @@ class QAService:
             confidence = "medium"
 
         is_enabled = graph_paths_enabled or audience == "admin"
-        gp_status, gp_reason, graph_paths = await self._graph_paths_for_citations(validated_citations, enabled=is_enabled)
+        gp_status, gp_reason, graph_paths = await self._graph_paths_for_citations(
+            validated_citations, enabled=is_enabled
+        )
 
         return {
             "answer": raw_answer,
-            "citations": validated_citations,
+            "citations": self._compact_citations(validated_citations),
             "confidence": confidence,
             "graph_paths": graph_paths,
             "graph_paths_status": gp_status,

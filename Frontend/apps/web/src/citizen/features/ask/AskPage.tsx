@@ -42,7 +42,7 @@ interface ChangeNotice {
 
 export interface BackendCitation {
   khoan_id?: string;
-  quote: string;
+  quote?: string;
   van_ban: string;
   dieu: string;
   score?: number;

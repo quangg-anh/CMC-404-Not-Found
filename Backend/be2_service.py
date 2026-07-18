@@ -73,43 +73,30 @@ OPENAI_API_KEY = os.getenv("BE2_OPENAI_API_KEY") or ""
 _legacy_model = (os.getenv("BE2_OPENAI_MODEL") or "").strip()
 LLM_LOCAL_MODEL = (os.getenv("BE2_LLM_LOCAL_MODEL") or _legacy_model or "gpt-4o-mini").strip()
 LLM_LARGE_MODEL = (os.getenv("BE2_LLM_LARGE_MODEL") or _legacy_model or "gpt-4o").strip()
-LLM_TIMEOUT = float(os.getenv("BE2_LLM_TIMEOUT_S") or "60")
+LLM_TIMEOUT = float(os.getenv("BE2_LLM_TIMEOUT_S") or "45")
 # Anti-loop generation controls for chat completions.
 LLM_TEMPERATURE = float(os.getenv("BE2_LLM_TEMPERATURE") or "0.2")
-LLM_MAX_TOKENS = int(os.getenv("BE2_LLM_MAX_TOKENS") or "512")
+LLM_MAX_TOKENS = int(os.getenv("BE2_LLM_MAX_TOKENS") or "320")
 LLM_REPEAT_PENALTY = float(os.getenv("BE2_LLM_REPEAT_PENALTY") or "1.3")
+LLM_CTX_CHARS = int(os.getenv("BE2_LLM_CTX_CHARS") or "220")
 
 _SYSTEM_PROMPT = (
-    "Bạn là trợ lý pháp lý Việt Nam của LexSocial AI. Trả lời bằng tiếng Việt, rõ ràng, trung lập, "
-    "bám pháp luật Việt Nam hiện hành (Hình sự, Hành chính, Dân sự, Thuế, Lao động…).\n"
-    "\n"
-    "## Khi có Ngữ cảnh (các dòng [số_hiệu::D…K…])\n"
-    "- Chỉ được GẮN mã Điều/Khoản/số hiệu và trích dẫn nguyên văn từ Ngữ cảnh.\n"
-    "- Không bịa số Điều/Khoản/Nghị định; không nhầm 'Nghị định' với 'Nghị quyết'.\n"
-    "- Chỉ dùng điều khoản đúng chủ đề câu hỏi; bỏ điều khoản chỉ trùng từ chung "
-    "(vd. 'thuế'/'100 triệu' khi hỏi thuế thu nhập cá nhân nhưng ngữ cảnh là thuế nhập khẩu).\n"
-    "\n"
-    "## Khi Ngữ cảnh trống hoặc lệch chủ đề\n"
-    "- VẪN phải trả lời theo nguyên tắc pháp luật Việt Nam (không được chỉ nói 'chưa đủ căn cứ' rồi dừng).\n"
-    "- Phân loại đúng lĩnh vực: hình sự / hành chính / thuế / dân sự / lao động…\n"
-    "- Ví dụ: chơi/đánh bạc trái phép → trước hết là hành vi bị cấm, có thể bị xử lý hành chính hoặc "
-    "truy cứu trách nhiệm hình sự (tội đánh bạc), mức độ có thể đến phạt tù tùy tính chất, quy mô; "
-    "câu hỏi về 'nộp thuế TNCN từ tiền cờ bạc' là thứ yếu so với rủi ro hình sự/hành chính.\n"
-    "- Không bịa số Điều/Khoản/mức tiền/thời hạn cụ thể nếu không có trong Ngữ cảnh; "
-    "nói 'theo quy định hiện hành của Bộ luật Hình sự / Luật Quản lý thuế…' ở mức nguyên tắc.\n"
-    "- Ghi rõ: phần này chưa gắn được điều khoản đã số hóa trong hệ thống; cần đối chiếu văn bản gốc; "
-    "không thay thế tư vấn luật sư.\n"
-    "\n"
-    "## Câu hỏi ngoài phạm vi\n"
-    "- Danh tính AI/model, chào hỏi xã giao: trả lời ngắn, không gắn căn cứ pháp lý.\n"
+    "Bạn là trợ lý pháp lý Việt Nam của LexSocial AI. Trả lời NGẮN (tối đa ~120 từ), tiếng Việt, rõ ràng.\n"
+    "## Có Ngữ cảnh [số_hiệu::D…K…]\n"
+    "- Chỉ gắn số hiệu/Điều/Khoản đúng chủ đề từ Ngữ cảnh; không chép nguyên văn dài.\n"
+    "- Bỏ điều khoản lệch chủ đề (trùng từ chung như 'thuế'/'100 triệu').\n"
+    "## Không có / lệch ngữ cảnh\n"
+    "- Trả lời nguyên tắc pháp luật VN (hình sự/hành chính/thuế…); không bịa số Điều/Khoản/mức tiền.\n"
+    "- Ví dụ cờ bạc: ưu tiên rủi ro hình sự/hành chính (có thể phạt tù), thuế chỉ phụ.\n"
+    "- Ghi ngắn: chưa gắn điều khoản đã số hóa; cần đối chiếu văn bản gốc.\n"
+    "Không khuyến khích vi phạm. Không chào hỏi dài."
 )
 
 
 _NO_CONTEXT_SYSTEM = (
-    "Bạn là trợ lý pháp lý Việt Nam của LexSocial AI. Không có điều khoản đã số hóa kèm theo. "
-    "Hãy trả lời theo đúng nguyên tắc pháp luật Việt Nam: phân loại lĩnh vực, nêu hệ quả pháp lý chính, "
-    "cảnh báo rủi ro. Không bịa số Điều/Khoản/mức tiền cụ thể. Không kết thúc bằng câu 'chưa đủ căn cứ' "
-    "mà bỏ trống nội dung pháp lý. Luôn nhắc cần đối chiếu văn bản gốc / luật sư khi cần."
+    "Trợ lý pháp lý Việt Nam LexSocial AI. Trả lời NGẮN (~120 từ). "
+    "Nêu hệ quả pháp lý đúng lĩnh vực; không bịa số Điều/Khoản/mức tiền; "
+    "không chỉ nói 'chưa đủ căn cứ' rồi dừng."
 )
 
 
@@ -235,8 +222,14 @@ async def _llm_generate(system: str, user: str, timeout_s: float, model: str | N
     return _clean_llm_text(raw)
 
 
+def _clip_ctx(text: str, limit: int | None = None) -> str:
+    lim = limit if limit is not None else LLM_CTX_CHARS
+    t = " ".join((text or "").split())
+    return t if len(t) <= lim else t[:lim].rstrip()
+
+
 def _context_block(ctx: list[tuple[str, str]]) -> str:
-    return "\n".join(f"[{kid}] {text}" for kid, text in ctx)
+    return "\n".join(f"[{kid}] {_clip_ctx(text)}" for kid, text in ctx)
 
 def _strip_accents(text: str) -> str:
     text = re.sub(r"[đĐ]", "d", text or "")
@@ -523,15 +516,9 @@ async def _handle_qa(prompt: str, timeout_s: float, model: str | None = None) ->
         user_msg = (
             f"Câu hỏi: {question}\n\n"
             "Không có điều khoản đã số hóa phù hợp trong Ngữ cảnh. "
-            "Hãy trả lời theo pháp luật Việt Nam ở mức nguyên tắc (không bịa số Điều/Khoản/mức tiền cụ thể).\n"
-            "Bố cục bắt buộc:\n"
-            "1) **Kết luận ngắn:** trả lời trực tiếp 1–2 câu (vd. đánh bạc trái phép có thể bị xử lý hình sự/hành chính, "
-            "kể cả phạt tù tùy trường hợp — không chỉ nói về thuế).\n"
-            "2) **Phân tích pháp lý:** tách rõ (a) trách nhiệm hình sự/hành chính về hành vi, "
-            "(b) nghĩa vụ thuế/dân sự nếu có liên quan; nêu đúng trọng tâm câu hỏi.\n"
-            "3) **Giới hạn:** chưa gắn được điều khoản đã số hóa trong hệ thống; cần đối chiếu Bộ luật Hình sự / "
-            "văn bản hành chính / Luật Quản lý thuế… bản chính thức; không thay thế tư vấn luật sư.\n"
-            "Không khuyến khích vi phạm pháp luật. Không liệt kê mục 'Nội dung có căn cứ' với mã khoản giả."
+            "Hãy trả lời NGẮN theo pháp luật Việt Nam (không bịa số Điều/Khoản/mức tiền).\n"
+            "Bố cục: (1) Kết luận ngắn 1–2 câu; (2) Phân tích pháp lý 2–4 câu; (3) Giới hạn 1 câu.\n"
+            "Với cờ bạc: ưu tiên rủi ro hình sự/hành chính (có thể phạt tù). Không khuyến khích vi phạm."
         )
         llm_answer = await _llm_generate(_NO_CONTEXT_SYSTEM, user_msg, timeout_s, model=model)
         if llm_answer:
@@ -550,34 +537,35 @@ async def _handle_qa(prompt: str, timeout_s: float, model: str | None = None) ->
     user_msg = (
         f"Ngữ cảnh (các điều khoản pháp luật liên quan):\n{_context_block(top)}\n\n"
         f"Câu hỏi: {question}\n\n"
-        "Trả lời MỘT LẦN, bám pháp luật Việt Nam.\n"
-        "- Nếu Ngữ cảnh đúng chủ đề: chỉ dựa vào Ngữ cảnh khi nêu số Điều/Khoản/số hiệu.\n"
-        "- Nếu Ngữ cảnh lệch chủ đề: BỎ qua ngữ cảnh lệch; trả lời theo nguyên tắc pháp luật Việt Nam "
-        "(không viện dẫn mã khoản lệch); ghi rõ chưa có điều khoản đã số hóa đúng chủ đề.\n"
-        "Bố cục bắt buộc:\n"
-        "1) **Kết luận ngắn:** trả lời trực tiếp câu hỏi trong 1–2 câu (đúng lĩnh vực: hình sự/hành chính/thuế…).\n"
-        "2) **Nội dung có căn cứ:** chỉ các ý đúng chủ đề; mỗi ý kèm số văn bản/Điều/Khoản từ mã khoản trong Ngữ cảnh. "
-        "Tối đa 1–3 ý. Nếu không có căn cứ đúng chủ đề trong Ngữ cảnh: bỏ mục này, chuyển sang phân tích nguyên tắc.\n"
-        "3) **Thiếu gì/giới hạn:** nêu thiếu điều khoản nào hoặc cần đối chiếu thêm.\n"
-        "Với câu hỏi về cờ bạc/đánh bạc: ưu tiên trách nhiệm hình sự/hành chính trước nghĩa vụ thuế. "
-        "Không hỏi lại nếu đã đủ để kết luận nguyên tắc; không kết luận mức tiền/thời hạn cụ thể nếu Ngữ cảnh không nêu."
+        "Trả lời MỘT LẦN, NGẮN (~120 từ).\n"
+        "- Chỉ nêu số hiệu/Điều/Khoản đúng chủ đề từ Ngữ cảnh; KHÔNG chép nguyên văn dài.\n"
+        "- Ngữ cảnh lệch chủ đề: bỏ qua; trả lời nguyên tắc VN, không gắn mã lệch.\n"
+        "Bố cục: (1) Kết luận ngắn; (2) Căn cứ: liệt kê tối đa 2 mã [số_hiệu::Dx.Ky] nếu đúng chủ đề; "
+        "(3) Giới hạn 1 câu nếu thiếu.\n"
+        "Cờ bạc: ưu tiên hình sự/hành chính trước thuế."
     )
     llm_answer = await _llm_generate(_SYSTEM_PROMPT, user_msg, timeout_s, model=model)
 
     if llm_answer and _answer_says_insufficient(llm_answer):
         return {"answer": llm_answer, "citations": [], "confidence": "low"}
 
-    # Citations only when LLM produced a grounded answer — NEVER dump extractive verbatim text.
-    # Extractive fallback previously cited wrong docs (e.g. "100 triệu" example in TT hải quan).
+    # Only cite clauses that are both selected AND mentioned / on-topic — max 2, quote kept short for BE3 validation.
+    answer_norm = _strip_accents(llm_answer or "")
+    citations: list[dict[str, str]] = []
+    for kid, text in top[:3]:
+        if len(citations) >= 2:
+            break
+        kid_norm = _strip_accents(kid)
+        if kid_norm in answer_norm or _topic_relevance(question, f"{kid} {text}") >= 0.5:
+            citations.append({"khoan_id": kid, "quote": _clip_ctx(text, 120)})
+
     if llm_answer:
-        citations = [{"khoan_id": kid, "quote": text} for kid, text in top[:3]]
         return {"answer": llm_answer, "citations": citations, "confidence": "medium"}
 
-    # LLM unavailable: still answer via the no-context LLM path shape (no fake legal dump).
     return {
         "answer": (
             "Hiện chưa tổng hợp được câu trả lời từ mô hình ngôn ngữ. "
-            "Hệ thống không đưa trích dẫn thô để tránh căn cứ lệch chủ đề. Vui lòng thử lại sau."
+            "Vui lòng thử lại sau."
         ),
         "citations": [],
         "confidence": "low",
