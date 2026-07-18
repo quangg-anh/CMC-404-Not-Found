@@ -23,20 +23,20 @@ interface ClarityItem { khoan_id: string; noi_dung: string; mau_thuan: number; k
 interface ClarityResponse { min_volume: number; items: ClarityItem[]; total: number }
 
 const NODE_COLORS: Record<string, string> = {
-  van_ban: '#344767', chuong: '#7c3aed', dieu: '#17c1e8', khoan: '#0ea5e9', chu_de: '#cb0c9f',
-  VanBanPhapLuat: '#1e293b',
-  VanBan: '#1e293b',
-  Dieu: '#3b82f6',
-  Khoan: '#0ea5e9',
-  ChuThe: '#8b5cf6',
-  NghiaVu: '#8b5cf6',
-  QuyenLoi: '#10b981',
-  HanhViCam: '#ef4444',
-  CheTai: '#f59e0b',
-  ThoiHan: '#14b8a6',
-  ChuDe: '#ec4899',
-  BaiDang: '#6366f1',
-  YKien: '#f97316',
+  van_ban: '#2557D6', chuong: '#1E46B8', dieu: '#4F7FE8', khoan: '#0EA5E9', chu_de: '#E85D0F',
+  VanBanPhapLuat: '#1E3A8A',
+  VanBan: '#1E3A8A',
+  Dieu: '#2557D6',
+  Khoan: '#0EA5E9',
+  ChuThe: '#6366F1',
+  NghiaVu: '#7C3AED',
+  QuyenLoi: '#168A45',
+  HanhViCam: '#DC2626',
+  CheTai: '#B54708',
+  ThoiHan: '#14B8A6',
+  ChuDe: '#E85D0F',
+  BaiDang: '#2557D6',
+  YKien: '#F08A4B',
 };
 
 const NODE_ICONS: Record<string, React.FC<any>> = {

@@ -1,7 +1,22 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import {
+  ShieldCheck,
+  SquaresFour,
+  Bell,
+  ListMagnifyingGlass,
+  FileText,
+  ShareNetwork,
+  HardDrives,
+  Article,
+  ListChecks,
+  Broadcast,
+  PenNib,
+  Scales,
+  SignOut,
+  GitDiff,
+} from '@phosphor-icons/react';
 import { apiGet, clearToken, getToken } from '../lib/api';
-import { ShieldCheck, SquaresFour, Bell, ListMagnifyingGlass, FileText, ShareNetwork, HardDrives, Article, ListChecks, Broadcast, PenNib } from '@phosphor-icons/react';
 import DashboardPage from '../features/dashboard/Dashboard';
 import AlertsPage from '../features/alerts/Alerts';
 import QAAdminPage from '../features/qa/QAAdmin';
@@ -16,90 +31,85 @@ import ReviewPage from '../features/review/ReviewPage';
 import KhoanPage from '../features/khoan/KhoanPage';
 import LoginPage from '../features/auth/Login';
 
-function Sidebar() {
+type NavItem = { to: string; label: string; icon: typeof SquaresFour };
+
+const MAIN_NAV: NavItem[] = [
+  { to: '/', label: 'Tổng quan', icon: SquaresFour },
+  { to: '/alerts', label: 'Cảnh báo rủi ro', icon: Bell },
+  { to: '/social', label: 'Radar MXH', icon: Broadcast },
+  { to: '/qa', label: 'Hỏi đáp pháp lý', icon: ListMagnifyingGlass },
+  { to: '/review', label: 'Hàng đợi duyệt', icon: ListChecks },
+  { to: '/briefs', label: 'Bản tin', icon: Article },
+  { to: '/suggestions', label: 'Đề xuất đính chính', icon: PenNib },
+];
+
+const DATA_NAV: NavItem[] = [
+  { to: '/van-ban', label: 'Số hóa văn bản', icon: FileText },
+  { to: '/jobs', label: 'Tiến trình Jobs', icon: HardDrives },
+  { to: '/diff', label: 'So sánh Diff', icon: GitDiff },
+  { to: '/graph', label: 'Đồ thị tri thức', icon: ShareNetwork },
+];
+
+function Sidebar({ onLogout }: { onLogout: () => void }) {
   const location = useLocation();
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string) =>
+    path === '/' ? location.pathname === '/' : location.pathname === path || location.pathname.startsWith(`${path}/`);
 
-  const navItemClass = (path: string) => `
-    flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all font-semibold text-sm mb-1
-    ${isActive(path) 
-      ? 'bg-primary/5 text-primary' 
-      : 'text-muted hover:bg-surface hover:text-primary'}
-  `;
+  const linkClass = (path: string) =>
+    `group flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
+      isActive(path)
+        ? 'bg-primary text-white shadow-[0_8px_18px_-10px_rgba(37,87,214,0.7)]'
+        : 'text-muted hover:bg-primary-soft/80 hover:text-primary'
+    }`;
 
-  const iconWrapperClass = (path: string) => `
-    w-8 h-8 rounded-md flex items-center justify-center transition-colors
-    ${isActive(path) ? 'bg-primary text-white shadow-sm' : 'bg-transparent text-muted'}
-  `;
+  const renderNav = (items: NavItem[]) =>
+    items.map(({ to, label, icon: IconCmp }) => (
+      <Link key={to} to={to} className={linkClass(to)} aria-current={isActive(to) ? 'page' : undefined}>
+        <IconCmp size={18} weight={isActive(to) ? 'fill' : 'bold'} aria-hidden />
+        {label}
+      </Link>
+    ));
 
   return (
-    <aside className="w-[260px] h-screen bg-surface border-r border-border fixed left-0 top-0 flex flex-col z-50 shadow-sm">
-      <div className="p-6 flex items-center gap-3 border-b border-border/50">
-        <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center text-white shadow-sm">
-          <ShieldCheck size={20} weight="fill" />
+    <aside className="fixed left-0 top-0 z-50 flex h-screen w-[268px] flex-col border-r border-border bg-surface/95 shadow-soft backdrop-blur-md">
+      <div className="flex items-center gap-3 border-b border-border/80 px-5 py-5">
+        <div className="flex h-10 w-10 items-center justify-center rounded-[12px] bg-gradient-to-br from-primary to-[#4F7FE8] text-white shadow-sm">
+          <Scales size={22} weight="fill" aria-hidden />
         </div>
-        <span className="text-primary font-bold tracking-tight">LexSocial AI</span>
+        <div>
+          <p className="font-display text-base font-extrabold leading-none tracking-tight">
+            <span className="admin-brand-gradient">LexSocial AI</span>
+          </p>
+          <p className="mt-1 text-xs font-medium text-muted">Cổng quản trị</p>
+        </div>
       </div>
 
-      <div className="flex-1 px-4 overflow-y-auto py-6 space-y-0.5">
-        <Link to="/" className={navItemClass('/')}>
-          <div className={iconWrapperClass('/')}><SquaresFour size={16} weight="fill" /></div>
-          Tổng quan
-        </Link>
-        <Link to="/alerts" className={navItemClass('/alerts')}>
-          <div className={iconWrapperClass('/alerts')}><Bell size={16} weight="fill" /></div>
-          Cảnh báo rủi ro
-        </Link>
-        <Link to="/social" className={navItemClass('/social')}>
-          <div className={iconWrapperClass('/social')}><Broadcast size={16} weight="fill" /></div>
-          Radar Mạng xã hội
-        </Link>
-        <Link to="/qa" className={navItemClass('/qa')}>
-          <div className={iconWrapperClass('/qa')}><ListMagnifyingGlass size={16} weight="fill" /></div>
-          Hỏi đáp Pháp lý
-        </Link>
-        <Link to="/review" className={navItemClass('/review')}>
-          <div className={iconWrapperClass('/review')}><ListChecks size={16} weight="fill" /></div>
-          Hàng đợi duyệt
-        </Link>
-        <Link to="/briefs" className={navItemClass('/briefs')}>
-          <div className={iconWrapperClass('/briefs')}><Article size={16} weight="fill" /></div>
-          Bản tin (Briefs)
-        </Link>
-        <Link to="/suggestions" className={navItemClass('/suggestions')}>
-          <div className={iconWrapperClass('/suggestions')}><PenNib size={16} weight="fill" /></div>
-          Đề xuất đính chính
-        </Link>
-        
-        <div className="pt-6 pb-2">
-          <p className="px-4 text-xs font-bold text-muted uppercase tracking-wider">Quản trị Dữ liệu</p>
-        </div>
-        <Link to="/van-ban" className={navItemClass('/van-ban')}>
-          <div className={iconWrapperClass('/van-ban')}><FileText size={16} weight="fill" /></div>
-          Số hóa văn bản (Ingest)
-        </Link>
-        <Link to="/jobs" className={navItemClass('/jobs')}>
-          <div className={iconWrapperClass('/jobs')}><HardDrives size={16} weight="fill" /></div>
-          Tiến trình (Jobs)
-        </Link>
-        <Link to="/diff" className={navItemClass('/diff')}>
-          <div className={iconWrapperClass('/diff')}><ListMagnifyingGlass size={16} weight="fill" /></div>
-          So sánh (Diff)
-        </Link>
-        <Link to="/graph" className={navItemClass('/graph')}>
-          <div className={iconWrapperClass('/graph')}><ShareNetwork size={16} weight="fill" /></div>
-          Đồ thị Tri thức
-        </Link>
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Điều hướng admin">
+        {renderNav(MAIN_NAV)}
+        <p className="px-3 pb-1 pt-5 text-[11px] font-bold uppercase tracking-wider text-muted">Dữ liệu</p>
+        {renderNav(DATA_NAV)}
+      </nav>
+
+      <div className="border-t border-border/80 p-3">
+        <button type="button" onClick={onLogout} className="admin-btn-secondary w-full justify-start !text-muted">
+          <SignOut size={18} weight="bold" aria-hidden />
+          Đăng xuất
+        </button>
+        <p className="mt-2 flex items-center gap-1.5 px-1 text-[11px] font-medium text-muted">
+          <ShieldCheck size={12} weight="fill" className="text-success" aria-hidden />
+          Phiên cán bộ · có kiểm duyệt
+        </p>
       </div>
     </aside>
   );
 }
 
-function AppContent() {
+function AppContent({ onLogout }: { onLogout: () => void }) {
   return (
-    <div className="min-h-screen bg-[#f8fafc] font-sans text-slate-900 relative">
-      <Sidebar />
-      <main className="ml-[260px] p-10 min-h-screen">
+    <div className="relative min-h-screen bg-background font-sans text-ink">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(37,87,214,0.06),_transparent_50%)]" />
+      <Sidebar onLogout={onLogout} />
+      <main className="admin-page-enter relative ml-[268px] min-h-screen p-6 sm:p-8 lg:p-10">
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
@@ -120,12 +130,8 @@ function AppContent() {
 }
 
 function App() {
-  // Seed auth state from the persisted bearer so a page reload (F5) keeps the session
-  // instead of bouncing back to the login screen.
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(getToken()));
 
-  // Validate the stored token in the background. Only log out when the backend actively
-  // reports it's not an admin (expired/invalid) — transient network errors are ignored.
   useEffect(() => {
     if (!isAuthenticated) return;
     apiGet<{ is_admin?: boolean }>('/auth/me')
@@ -136,9 +142,14 @@ function App() {
         }
       })
       .catch(() => {
-        /* keep session on transient errors (backend momentarily unreachable) */
+        /* keep session on transient errors */
       });
   }, [isAuthenticated]);
+
+  const logout = () => {
+    clearToken();
+    setIsAuthenticated(false);
+  };
 
   if (!isAuthenticated) {
     return <LoginPage onLogin={() => setIsAuthenticated(true)} />;
@@ -146,7 +157,7 @@ function App() {
 
   return (
     <Router basename="/admin">
-      <AppContent />
+      <AppContent onLogout={logout} />
     </Router>
   );
 }

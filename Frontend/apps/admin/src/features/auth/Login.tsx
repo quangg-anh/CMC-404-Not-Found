@@ -19,13 +19,11 @@ export default function LoginPage({ onLogin }: { onLogin: (role: string) => void
     setIsLoading(true);
     setError(null);
     try {
-      // Real authentication against the Postgres `users` table (bcrypt via pgcrypto).
       const res = await apiPost<LoginResponse>('/auth/login', { email: email.trim(), password });
       setToken(res.token);
       if (res.user.is_admin) {
         onLogin(res.user.role);
       } else {
-        // Citizen accounts don't belong in the admin console — send them to the citizen portal.
         window.location.href = '/citizen';
       }
     } catch (err) {
@@ -36,135 +34,130 @@ export default function LoginPage({ onLogin }: { onLogin: (role: string) => void
   };
 
   return (
-    <div className="min-h-screen w-full flex bg-surface">
-      {/* Cột trái: Branding (Ẩn trên mobile) */}
-      <div className="hidden lg:flex w-5/12 bg-slate-900 flex-col justify-between p-12 relative overflow-hidden">
-        {/* Abstract Pattern background */}
-        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-accent rounded-full mix-blend-multiply filter blur-[128px] opacity-40"></div>
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-secondaryAccent rounded-full mix-blend-multiply filter blur-[128px] opacity-40"></div>
-        
-        <div className="relative z-10 flex items-center gap-3 animate-fade-in-up">
-          <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center backdrop-blur-md border border-white/20">
-            <Scales size={28} className="text-white" weight="fill" />
+    <div className="flex min-h-screen w-full bg-surface">
+      <div className="relative hidden w-5/12 flex-col justify-between overflow-hidden bg-gradient-to-br from-[#0F172A] via-[#1E3A8A] to-primary p-12 lg:flex">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)',
+            backgroundSize: '28px 28px',
+          }}
+        />
+        <div className="pointer-events-none absolute -left-24 -top-24 h-80 w-80 rounded-full bg-accent/30 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 -right-16 h-96 w-96 rounded-full bg-primary/40 blur-3xl" />
+
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-white/20 bg-white/10 text-white backdrop-blur-md">
+            <Scales size={28} weight="fill" aria-hidden />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">LexSocial AI</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-white">LexSocial AI</h1>
         </div>
 
-        <div className="relative z-10 max-w-md animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-          <div className="inline-block px-4 py-1.5 rounded-full bg-white/10 border border-white/20 text-white text-xs font-bold tracking-wider uppercase mb-6 backdrop-blur-md">
-            Hệ thống Quản trị
-          </div>
-          <h2 className="text-4xl font-bold text-white leading-tight mb-6">
-            Kiểm soát dư luận.<br />
+        <div className="relative z-10 max-w-md">
+          <p className="mb-5 inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white backdrop-blur-md">
+            Hệ thống quản trị
+          </p>
+          <h2 className="mb-4 text-4xl font-extrabold leading-tight text-white">
+            Kiểm soát dư luận.
+            <br />
             Minh bạch pháp lý.
           </h2>
-          <p className="text-slate-400 text-lg leading-relaxed mb-10">
-            Trung tâm chỉ huy số hóa hệ thống văn bản quy phạm pháp luật và phân tích thông tin mạng xã hội bằng Trí tuệ Nhân tạo.
+          <p className="mb-8 text-lg leading-relaxed text-white/70">
+            Trung tâm chỉ huy số hóa văn bản QPPL và giám sát thông tin mạng xã hội kèm căn cứ pháp lý.
           </p>
-          <div className="flex items-center gap-6 text-sm font-medium text-slate-300">
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={20} className="text-success" weight="fill" />
-              Kiểm duyệt bởi con người trước khi xuất bản
-            </div>
-          </div>
+          <p className="flex items-center gap-2 text-sm font-semibold text-white/85">
+            <ShieldCheck size={20} className="text-emerald-300" weight="fill" aria-hidden />
+            Kiểm duyệt bởi con người trước khi xuất bản
+          </p>
         </div>
 
-        <div className="relative z-10 animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
-          <p className="text-slate-500 text-sm">© 2026 LexSocial AI.</p>
-        </div>
+        <p className="relative z-10 text-sm text-white/45">© 2026 LexSocial AI</p>
       </div>
 
-      {/* Cột phải: Form Đăng nhập */}
-      <div className="w-full lg:w-7/12 flex flex-col justify-center px-8 sm:px-24 xl:px-32 relative bg-background/50">
-        <div className="w-full max-w-md mx-auto animate-fade-in-up">
-          
+      <div className="relative flex w-full flex-col justify-center bg-background px-8 sm:px-16 lg:w-7/12 xl:px-28">
+        <div className="mx-auto w-full max-w-md">
           <div className="mb-10 text-center lg:text-left">
-            <div className="lg:hidden w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
-              <Scales size={32} className="text-white" weight="fill" />
+            <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-[#4F7FE8] text-white shadow-lg lg:hidden">
+              <Scales size={28} weight="fill" aria-hidden />
             </div>
-            <h2 className="text-3xl font-bold text-primary tracking-tight mb-2">Đăng nhập cổng quản trị</h2>
-            <p className="text-muted text-base">Vui lòng sử dụng tài khoản định danh cán bộ</p>
+            <h2 className="font-display text-3xl font-extrabold tracking-tight text-ink">Đăng nhập cổng quản trị</h2>
+            <p className="mt-2 text-base text-muted">Dùng tài khoản định danh cán bộ</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <label className="text-sm font-bold text-primary">Mã định danh / Email</label>
-              <input 
-                type="text" 
+              <label className="text-sm font-bold text-ink" htmlFor="admin-email">
+                Email
+              </label>
+              <input
+                id="admin-email"
+                type="text"
                 name="username"
                 autoComplete="username"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="VD: admin@local"
-                className="w-full px-5 py-4 bg-surface border border-border rounded-xl text-primary font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
+                className="admin-input"
               />
             </div>
 
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <label className="text-sm font-bold text-primary">Mật khẩu xác thực</label>
-              </div>
+              <label className="text-sm font-bold text-ink" htmlFor="admin-password">
+                Mật khẩu
+              </label>
               <div className="relative">
-                <input 
-                  type={showPassword ? "text" : "password"}
+                <input
+                  id="admin-password"
+                  type={showPassword ? 'text' : 'password'}
                   name="password"
                   autoComplete="current-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-5 py-4 bg-surface border border-border rounded-xl text-primary font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm pr-12"
+                  className="admin-input pr-12"
                 />
-                <button 
+                <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted hover:text-primary transition-colors"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-primary"
+                  aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 >
                   {showPassword ? <EyeSlash size={22} /> : <Eye size={22} />}
                 </button>
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-2">
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="remember" className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer" />
-                <label htmlFor="remember" className="text-sm font-medium text-muted cursor-pointer">Lưu phiên đăng nhập</label>
-              </div>
-              <a href="#" className="text-sm font-bold text-primary hover:text-accent transition-colors">Quên mật khẩu?</a>
-            </div>
-
             {error && (
-              <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-semibold">
-                <WarningCircle size={18} weight="fill" className="shrink-0" /> {error}
+              <div className="flex items-center gap-2 rounded-control border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                <WarningCircle size={18} weight="fill" className="shrink-0" aria-hidden />
+                {error}
               </div>
             )}
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={isLoading || !email || !password}
-              className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-70 disabled:hover:translate-y-0 disabled:cursor-not-allowed mt-4 group"
+              className="admin-btn-primary mt-2 w-full !min-h-[52px] !text-base"
             >
               {isLoading ? (
                 <>
-                  <Spinner size={20} className="animate-spin" /> Đang kiểm tra mã...
+                  <Spinner size={20} className="animate-spin" aria-hidden /> Đang xác thực…
                 </>
               ) : (
                 <>
-                  Đăng nhập hệ thống
-                  <ArrowRight size={20} weight="bold" className="group-hover:translate-x-1 transition-transform" />
+                  Đăng nhập
+                  <ArrowRight size={20} weight="bold" aria-hidden />
                 </>
               )}
             </button>
           </form>
 
-          <div className="mt-12 pt-8 border-t border-border flex flex-col items-center gap-3 text-sm">
-            <p className="text-muted flex items-center gap-2">
-              <ShieldCheck size={18} weight="fill" className="text-slate-400" />
-              Xác thực bằng tài khoản định danh cán bộ
-            </p>
-          </div>
+          <p className="mt-10 flex items-center justify-center gap-2 border-t border-border pt-6 text-sm text-muted">
+            <ShieldCheck size={18} weight="fill" className="text-primary" aria-hidden />
+            Xác thực bằng tài khoản định danh cán bộ
+          </p>
         </div>
       </div>
     </div>

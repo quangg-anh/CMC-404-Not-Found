@@ -78,40 +78,69 @@ function postAuthor(p: Post): string | undefined {
 
 export default function SocialPage() {
   const [tab, setTab] = useState<Tab>('topics');
+  const [metrics, setMetrics] = useState<{ posts: number; topics: number; loading: boolean }>({
+    posts: 0,
+    topics: 0,
+    loading: true,
+  });
+
+  useEffect(() => {
+    let alive = true;
+    apiGet<{
+      knowledge_graph: { social_posts_monitored: number; topic_count?: number };
+    }>('/admin/dashboard/summary')
+      .then((data) => {
+        if (!alive) return;
+        setMetrics({
+          posts: data.knowledge_graph.social_posts_monitored ?? 0,
+          topics: data.knowledge_graph.topic_count ?? 0,
+          loading: false,
+        });
+      })
+      .catch(() => {
+        if (!alive) return;
+        setMetrics((m) => ({ ...m, loading: false }));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const fmt = (n: number) => n.toLocaleString('vi-VN');
 
   return (
-    <div className="max-w-6xl mx-auto pb-20">
-      <div className="relative overflow-hidden rounded-[2rem] border border-sky-100 bg-gradient-to-br from-slate-950 via-slate-900 to-sky-900 text-white p-7 md:p-8 shadow-xl shadow-slate-200 mb-8">
-        <div className="absolute -right-16 -top-16 h-52 w-52 rounded-full bg-sky-400/20 blur-3xl" />
-        <div className="absolute right-24 bottom-0 h-28 w-28 rounded-full bg-cyan-300/10 blur-2xl" />
-        <div className="relative grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-center">
+    <div className="mx-auto max-w-6xl pb-20">
+      <div className="relative mb-8 overflow-hidden rounded-[1.75rem] border border-primary/15 bg-gradient-to-br from-[#0F172A] via-[#1E3A8A] to-primary p-7 text-white shadow-card md:p-8">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-accent/25 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-0 right-24 h-28 w-28 rounded-full bg-white/10 blur-2xl" />
+        <div className="relative grid grid-cols-1 items-center gap-6 lg:grid-cols-[1fr_380px]">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-sky-100 text-xs font-bold uppercase tracking-widest mb-4">
-              <ShareNetwork size={16} weight="fill" /> Social Radar Live
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-sky-100">
+              <ShareNetwork size={16} weight="fill" aria-hidden /> Social Radar Live
             </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight">Radar Mạng xã hội</h1>
-            <p className="text-sky-100/80 mt-3 font-medium max-w-2xl leading-relaxed">
+            <h1 className="font-display text-3xl font-extrabold tracking-tight md:text-4xl">Radar Mạng xã hội</h1>
+            <p className="mt-3 max-w-2xl font-medium leading-relaxed text-sky-100/85">
               Crawl YouTube bằng token đã cấu hình, gom bình luận công khai theo chủ đề pháp lý, rồi đưa bài vào pipeline BE2 để giám sát.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <MetricCard icon={YoutubeLogo} label="Nguồn" value="YouTube" />
-            <MetricCard icon={Database} label="Lưu trữ" value="Neo4j" />
-            <MetricCard icon={ChartLineUp} label="Pipeline" value="BE2" />
+            <MetricCard icon={YoutubeLogo} label="Bài giám sát" value={metrics.loading ? '…' : fmt(metrics.posts)} />
+            <MetricCard icon={Database} label="Chủ đề" value={metrics.loading ? '…' : fmt(metrics.topics)} />
+            <MetricCard icon={ChartLineUp} label="Nguồn" value="YouTube" />
           </div>
         </div>
       </div>
 
       <CrawlPanel />
 
-      <div className="flex items-center gap-1 mb-6 bg-slate-100 p-1 rounded-xl w-fit">
+      <div className="mb-6 flex w-fit items-center gap-1 rounded-xl bg-primary-soft/60 p-1">
         {([['topics', 'Chủ đề', Hash], ['posts', 'Bài đăng', ChatCircleText], ['ingest', 'Thu thập & Preview', PaperPlaneRight]] as const).map(
           ([id, label, Icon]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                tab === id ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-all ${
+                tab === id ? 'bg-white text-primary shadow-sm' : 'text-muted hover:text-ink'
               }`}
             >
               <Icon size={16} weight={tab === id ? 'fill' : 'regular'} /> {label}

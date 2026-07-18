@@ -3,47 +3,63 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
-    "../../packages/ui-legal/**/*.{js,ts,jsx,tsx}"
+    "../../packages/ui-legal/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
       colors: {
-        background: "#f8f9fa",
-        surface: "#ffffff",
-        primary: "#344767", // dark blue/gray for text
-        muted: "#8392ab",
-        border: "#e9ecef",
-        accent: "#cb0c9f", // Soft UI primary pink/purple
-        secondaryAccent: "#17c1e8", // Soft UI info blue
-        destructive: "#ea0606",
-        success: "#82d616",
-        warning: "#fbcf33",
+        ink: '#111827',
+        muted: '#667085',
+        background: '#F6F8FC',
+        surface: '#FFFFFF',
+        border: '#DCE3ED',
+        primary: '#2557D6',
+        'primary-hover': '#1E46B8',
+        'primary-soft': '#E8EEFB',
+        'primary-dark': '#1E46B8',
+        accent: '#E85D0F',
+        'accent-soft': '#FFF4ED',
+        brand: '#E85D0F',
+        destructive: '#DC2626',
+        success: '#168A45',
+        'success-soft': '#E8F7EE',
+        warning: '#B54708',
+        'warning-soft': '#FEF4E6',
+        // Soft-UI aliases kept for gradual migration
+        secondaryAccent: '#2557D6',
       },
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
+        sans: ['"Be Vietnam Pro"', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['"Be Vietnam Pro"', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       boxShadow: {
-        'soft': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-        'card': '0 20px 27px 0 rgba(0, 0, 0, 0.05)',
+        soft: '0 1px 2px rgba(17, 24, 39, 0.04), 0 8px 24px -12px rgba(37, 87, 214, 0.12)',
+        card: '0 2px 8px rgba(17, 24, 39, 0.06), 0 16px 40px -20px rgba(37, 87, 214, 0.2)',
+        lift: '0 2px 8px rgba(17, 24, 39, 0.06)',
+      },
+      borderRadius: {
+        card: '16px',
+        control: '14px',
       },
       backgroundImage: {
-        'gradient-accent': 'linear-gradient(310deg, #7928ca, #ff0080)',
-        'gradient-info': 'linear-gradient(310deg, #2152ff, #21d4fd)',
-        'gradient-success': 'linear-gradient(310deg, #17ad37, #98ec2d)',
-        'gradient-warning': 'linear-gradient(310deg, #f53939, #fbcf33)',
-        'gradient-danger': 'linear-gradient(310deg, #ea0606, #ff667c)',
-        'gradient-dark': 'linear-gradient(310deg, #141727, #3a416f)',
+        'gradient-accent': 'linear-gradient(135deg, #2557D6, #E85D0F)',
+        'gradient-info': 'linear-gradient(135deg, #1E46B8, #4F7FE8)',
+        'gradient-success': 'linear-gradient(135deg, #168A45, #34C759)',
+        'gradient-warning': 'linear-gradient(135deg, #B54708, #E85D0F)',
+        'gradient-danger': 'linear-gradient(135deg, #DC2626, #F87171)',
+        'gradient-dark': 'linear-gradient(135deg, #0F172A, #2557D6)',
       },
       keyframes: {
         'fade-in-up': {
-          '0%': { opacity: '0', transform: 'translateY(15px)' },
+          '0%': { opacity: '0', transform: 'translateY(12px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
       },
       animation: {
-        'fade-in-up': 'fade-in-up 0.5s ease-out forwards',
-      }
+        'fade-in-up': 'fade-in-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards',
+      },
     },
   },
   plugins: [],
-}
+};

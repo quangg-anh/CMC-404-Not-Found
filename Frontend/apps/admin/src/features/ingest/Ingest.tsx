@@ -74,6 +74,10 @@ export default function IngestPage() {
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const loadJobs = () => {
     setJobsLoading(true);
@@ -95,6 +99,19 @@ export default function IngestPage() {
     loadJobs();
     loadDocuments();
   }, []);
+
+  const openDetail = (doc: VanBanItem) => {
+    const id = doc.vb_id || doc.id || doc.so_hieu;
+    if (!id) return;
+    setSelectedId(id);
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    apiGet<Record<string, unknown>>(`/admin/legal/van-ban/${encodeURIComponent(id)}`)
+      .then((data) => setDetail(data))
+      .catch((err) => setDetailError(err instanceof Error ? err.message : 'Không tải được chi tiết văn bản'))
+      .finally(() => setDetailLoading(false));
+  };
 
   const deleteDocument = async (doc: VanBanItem) => {
     const id = doc.vb_id || doc.id || doc.so_hieu;
@@ -315,25 +332,40 @@ export default function IngestPage() {
             {filteredDocs.map((doc) => {
               const id = doc.vb_id || doc.id || doc.so_hieu || '';
               const title = doc.tieu_de || doc.ten || doc.so_hieu || id;
+              const active = selectedId === id;
               return (
-                <div key={id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between gap-4 group">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-lg bg-brand/5 text-brand flex items-center justify-center shrink-0">
-                      <FileText size={18} weight="fill" />
+                <div
+                  key={id}
+                  className={`flex items-center justify-between gap-4 p-4 transition-colors group ${
+                    active ? 'bg-primary-soft/50' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => openDetail(doc)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  >
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                      <FileText size={18} weight="fill" aria-hidden />
                     </div>
                     <div className="min-w-0">
-                      <div className="font-bold text-slate-800 text-sm truncate group-hover:text-brand transition-colors">{title}</div>
-                      <div className="text-xs text-slate-400 font-medium truncate mt-0.5">
-                        <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold mr-2">{doc.so_hieu || 'N/A'}</span>
-                        {doc.source_filename || id}{doc.ngay_ban_hanh ? ` · ${doc.ngay_ban_hanh}` : ''}
+                      <div className={`truncate text-sm font-bold transition-colors ${active ? 'text-primary' : 'text-slate-800 group-hover:text-primary'}`}>
+                        {title}
+                      </div>
+                      <div className="mt-0.5 truncate text-xs font-medium text-slate-400">
+                        <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600">
+                          {doc.so_hieu || 'N/A'}
+                        </span>
+                        {doc.source_filename || id}
+                        {doc.ngay_ban_hanh ? ` · ${doc.ngay_ban_hanh}` : ''}
                       </div>
                     </div>
-                  </div>
+                  </button>
                   <button
                     type="button"
                     onClick={() => deleteDocument(doc)}
                     disabled={deletingId === id}
-                    className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center transition-all disabled:opacity-50 shrink-0 opacity-100 sm:opacity-50 sm:group-hover:opacity-100"
+                    className="flex shrink-0 items-center rounded-lg p-2 text-slate-400 transition-all hover:bg-red-50 hover:text-red-600 disabled:opacity-50 sm:opacity-50 sm:group-hover:opacity-100"
                     title="Xóa văn bản"
                   >
                     {deletingId === id ? <Spinner size={16} className="animate-spin" /> : <Trash size={18} />}
@@ -344,6 +376,44 @@ export default function IngestPage() {
           </div>
         )}
       </div>
+
+      {(selectedId || detailLoading || detailError) && (
+        <div className="admin-card mb-10 overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border bg-background/70 px-5 py-3">
+            <h3 className="text-sm font-bold text-ink">Chi tiết văn bản (API)</h3>
+            <button type="button" className="text-xs font-bold text-muted hover:text-primary" onClick={() => { setSelectedId(null); setDetail(null); setDetailError(null); }}>
+              Đóng
+            </button>
+          </div>
+          <div className="p-5">
+            {detailLoading ? (
+              <div className="flex items-center gap-2 text-sm font-semibold text-muted">
+                <Spinner size={16} className="animate-spin" /> Đang tải cây Điều–Khoản…
+              </div>
+            ) : detailError ? (
+              <div className="text-sm font-semibold text-red-600">{detailError}</div>
+            ) : detail ? (
+              <div className="space-y-3">
+                <p className="text-base font-extrabold text-ink">
+                  {String(detail.so_hieu ?? detail.ten ?? selectedId)}
+                </p>
+                {detail.ten ? <p className="text-sm text-muted">{String(detail.ten)}</p> : null}
+                <div className="flex flex-wrap gap-2 text-xs font-bold">
+                  <span className="rounded-control bg-primary-soft px-2.5 py-1 text-primary">
+                    {Array.isArray(detail.tree) ? detail.tree.length : Array.isArray(detail.dieu) ? (detail.dieu as unknown[]).length : 0} điều/khoản
+                  </span>
+                  {detail.trang_thai ? (
+                    <span className="rounded-control bg-background px-2.5 py-1 text-muted">{String(detail.trang_thai)}</span>
+                  ) : null}
+                </div>
+                <pre className="max-h-64 overflow-auto rounded-control border border-border bg-background p-3 font-mono text-[11px] leading-relaxed text-muted">
+                  {JSON.stringify(detail.tree ?? detail.dieu ?? detail, null, 2)}
+                </pre>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold text-slate-900">Job số hóa gần đây</h3>

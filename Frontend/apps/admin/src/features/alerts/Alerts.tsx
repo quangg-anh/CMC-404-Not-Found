@@ -3,6 +3,7 @@ import { MagnifyingGlass, ChartLineUp, Users, CheckCircle, Warning, CaretRight, 
 import { RiskBadge, type RiskLabel } from '../../../../../packages/ui-legal/src/components/RiskBadge';
 import { CitationCard } from '../../../../../packages/ui-legal/src/components/CitationCard';
 import { apiGet, apiPatch } from '../../lib/api';
+import { ErrorBanner, PageHeader } from '../../components/AdminChrome';
 
 interface RawAlert {
   alert_id?: string;
@@ -125,7 +126,11 @@ export default function AlertsPage() {
     setBusyId(id);
     try {
       await apiPatch(`/admin/alerts/${id}`, { action });
-      setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, status: action === 'dismiss' ? 'resolved' : 'investigating' } : a)));
+      setAlerts((prev) =>
+        prev.map((a) =>
+          a.id === id ? { ...a, status: action === 'dismiss' ? 'closed' : 'triaged' } : a,
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi xử lý cảnh báo');
     } finally {
@@ -139,64 +144,60 @@ export default function AlertsPage() {
   );
 
   return (
-    <div className="max-w-6xl mx-auto pb-20 animate-fade-in-up">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold uppercase tracking-widest mb-3">
-            <Warning size={16} weight="fill" /> Radar Mạng Xã Hội
-          </div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Cảnh báo Tin giả & Sai lệch</h1>
-          <p className="text-slate-500 mt-2 font-medium">
-            AI tự động trích xuất các nhận định pháp lý trên MXH và đối chiếu với cơ sở dữ liệu luật Quốc gia.
-          </p>
-        </div>
-        <div className="flex gap-3">
+    <div className="mx-auto max-w-6xl pb-20">
+      <PageHeader
+        title="Cảnh báo tin giả & sai lệch"
+        subtitle="AI trích xuất nhận định pháp lý trên MXH và đối chiếu với cơ sở dữ liệu luật — số liệu từ API `/admin/alerts`."
+        actions={
           <div className="relative">
-            <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm kiếm chủ đề..."
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium w-64 focus:outline-none focus:border-brand transition-colors shadow-sm"
+              placeholder="Tìm chủ đề hoặc claim…"
+              className="admin-input w-64 !py-2.5 pl-10"
             />
           </div>
-        </div>
-      </div>
+        }
+      />
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-4 text-sm font-semibold mb-6">{error}</div>}
+      {error ? <div className="mb-6"><ErrorBanner message={error} /></div> : null}
 
       {loading ? (
-        <div className="p-16 text-center text-slate-400 font-semibold flex items-center justify-center gap-2">
-          <Spinner size={20} className="animate-spin" /> Đang tải cảnh báo…
+        <div className="flex items-center justify-center gap-2 p-16 text-sm font-semibold text-muted">
+          <Spinner size={20} className="animate-spin" aria-hidden /> Đang tải cảnh báo…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="p-16 text-center bg-white rounded-2xl border border-slate-200">
-          <Warning size={40} className="text-slate-300 mx-auto mb-4" weight="fill" />
-          <p className="text-slate-500 font-semibold">Chưa có cảnh báo nào được ghi nhận.</p>
-          <p className="text-slate-400 text-sm mt-1">Cảnh báo sẽ xuất hiện khi pipeline giám sát MXH phát hiện tín hiệu sai lệch.</p>
+        <div className="admin-card p-16 text-center">
+          <Warning size={40} className="mx-auto mb-4 text-border" weight="fill" aria-hidden />
+          <p className="font-semibold text-muted">Chưa có cảnh báo nào được ghi nhận.</p>
+          <p className="mt-1 text-sm text-muted">Cảnh báo xuất hiện khi pipeline giám sát MXH phát hiện tín hiệu sai lệch.</p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-5">
           {filtered.map((alert) => (
-            <div key={alert.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col hover:border-brand/30 transition-colors group">
-              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap gap-4 items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-black text-slate-400 bg-white px-2 py-1 rounded border border-slate-200 shadow-sm">{alert.id}</span>
-                  <span className="text-sm font-bold text-slate-800">{alert.chuDe}</span>
-                  {alert.createdAt && <span className="text-xs text-slate-500 font-medium">• {alert.createdAt}</span>}
+            <div key={alert.id} className="admin-card group overflow-hidden transition hover:border-primary/30">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border/80 bg-background/60 px-6 py-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="rounded-control border border-border bg-white px-2 py-1 font-mono text-xs font-bold text-muted shadow-sm">{alert.id.slice(0, 8)}</span>
+                  <span className="text-sm font-bold text-ink">{alert.chuDe}</span>
+                  {alert.createdAt ? <span className="text-xs font-medium text-muted">• {alert.createdAt}</span> : null}
                 </div>
                 <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                    <ChartLineUp size={16} /> Volume: <span className="text-slate-900 font-bold">{alert.volume.toLocaleString('vi-VN')}</span>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-muted">
+                    <ChartLineUp size={16} aria-hidden /> Volume:{' '}
+                    <span className="font-bold text-ink">{alert.volume.toLocaleString('vi-VN')}</span>
                   </div>
-                  <div className="h-4 w-px bg-slate-300"></div>
+                  <div className="h-4 w-px bg-border" />
                   <div className="flex items-center gap-2 text-xs font-semibold">
                     Trạng thái:
                     {alert.status === 'open' ? (
-                      <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded-md border border-red-100">Cần xử lý</span>
+                      <span className="rounded-md border border-red-100 bg-red-50 px-2 py-0.5 text-red-600">Cần xử lý</span>
                     ) : (
-                      <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">Đã xử lý</span>
+                      <span className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-emerald-600">
+                        {alert.status === 'triaged' ? 'Đã triage' : 'Đã đóng'}
+                      </span>
                     )}
                   </div>
                 </div>
