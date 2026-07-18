@@ -28,7 +28,7 @@ export function CitizenHeader() {
   }, [open]);
 
   return (
-    <header className="ls-header-sheen sticky top-0 z-50 border-b border-border bg-white/95 backdrop-blur-md">
+    <header className="ls-header-sheen sticky top-0 z-50 border-b border-white/40 bg-white/60 backdrop-blur-xl">
       <div className="ls-container flex h-[76px] items-center justify-between gap-4">
         <Link to="/" className="group flex min-h-touch items-center gap-3 rounded-control pr-1 transition duration-ui" aria-label="Về trang chủ LexSocial AI">
           <div className="relative flex h-11 w-11 items-center justify-center rounded-[14px] bg-gradient-to-br from-primary to-[#3B6FE8] text-white shadow-[0_8px_18px_-10px_rgba(37,87,214,0.7)] transition duration-ui group-hover:scale-105">
@@ -88,7 +88,7 @@ export function CitizenHeader() {
       </div>
 
       {open ? (
-        <div id="mobile-nav" className="ls-reveal border-t border-border bg-white/95 backdrop-blur-md md:hidden">
+        <div id="mobile-nav" className="ls-reveal border-t border-white/40 bg-white/60 backdrop-blur-xl md:hidden">
           <nav className="ls-container flex flex-col gap-2 py-4" aria-label="Menu điện thoại">
             {NAV.map(({ to, label, icon: IconCmp, primary }) => {
               const active = isActive(pathname, to);

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   MagnifyingGlass,
@@ -39,11 +39,11 @@ function HeroSearch() {
   };
 
   return (
-    <section className="ls-hero-banner relative w-full overflow-hidden border-b border-border">
+    <section className="ls-hero-banner relative w-full overflow-hidden border-b border-border min-h-[calc(100vh-76px)] flex flex-col justify-center">
       <div className="ls-hero-banner__plane absolute inset-0" aria-hidden />
       <Atmosphere tone="hero" showMark />
 
-      <div className="ls-container relative grid min-h-[min(72vh,640px)] items-center gap-8 py-12 lg:grid-cols-[1.15fr_0.85fr] lg:gap-12 lg:py-16">
+      <div className="ls-container relative grid items-center gap-8 py-12 lg:grid-cols-[1.15fr_0.85fr] lg:gap-12 lg:py-16">
         <div>
           <p className="ls-reveal inline-flex items-center gap-2 rounded-control border border-white/80 bg-white/85 px-3 py-1.5 text-sm font-semibold text-muted shadow-sm backdrop-blur-sm">
             <Scales size={16} className="text-primary" weight="fill" aria-hidden />
@@ -95,30 +95,39 @@ function HeroSearch() {
         </div>
 
         <aside
-          className="ls-reveal ls-reveal-delay-3 ls-float ls-hero-banner__panel relative hidden overflow-hidden p-6 lg:block"
+          className="ls-reveal ls-reveal-delay-3 ls-float ls-hero-banner__panel relative hidden overflow-hidden p-6 lg:block transition-transform duration-700 hover:-translate-y-2 hover:shadow-[0_40px_80px_-15px_rgba(37,87,214,0.15)] group"
           aria-hidden
         >
-          <div className="ls-shimmer pointer-events-none absolute inset-0 opacity-30" />
-          <div className="pointer-events-none absolute -right-2 -top-1 opacity-90">
+          <div className="ls-shimmer pointer-events-none absolute inset-0 opacity-30 group-hover:opacity-60 transition-opacity duration-700" />
+          <div className="pointer-events-none absolute -right-2 -top-1 opacity-90 transition-transform duration-700 group-hover:scale-110 group-hover:-rotate-3">
             <AccentIllustration variant="chat" />
           </div>
           <div className="relative mb-3 flex items-center gap-2 text-sm font-semibold text-muted">
-            <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-primary-soft text-primary">
-              <ChatCircleText size={18} weight="fill" />
+            <div className="relative flex h-8 w-8 items-center justify-center rounded-[10px] bg-primary-soft text-primary">
+              <span className="absolute inset-0 animate-ping rounded-[10px] bg-primary opacity-20"></span>
+              <ChatCircleText size={18} weight="fill" className="relative z-10" />
             </div>
             Ví dụ câu trả lời
           </div>
-          <div className="relative rounded-control border border-white/70 bg-white p-4 shadow-sm">
-            <p className="text-sm font-bold text-ink">Kết luận ngắn</p>
+          <div className="relative rounded-control border border-white/70 bg-white p-4 shadow-sm transition-all duration-500 group-hover:shadow-md group-hover:border-white">
+            <p className="text-sm font-bold text-ink flex items-center gap-2">
+              Kết luận ngắn
+              <span className="flex gap-0.5 items-center bg-primary/10 px-1.5 py-0.5 rounded-full">
+                <span className="w-1 h-1 rounded-full bg-primary animate-[ping_1.5s_ease-in-out_infinite]" style={{ animationDelay: '0ms' }}></span>
+                <span className="w-1 h-1 rounded-full bg-primary animate-[ping_1.5s_ease-in-out_infinite]" style={{ animationDelay: '300ms' }}></span>
+                <span className="w-1 h-1 rounded-full bg-primary animate-[ping_1.5s_ease-in-out_infinite]" style={{ animationDelay: '600ms' }}></span>
+              </span>
+            </p>
             <p className="mt-2 text-sm leading-relaxed text-muted">
               Lao động nữ được nghỉ thai sản 6 tháng theo quy định hiện hành (khi đủ điều kiện).
             </p>
-            <div className="mt-4 rounded-control border border-success/20 bg-success-soft p-3">
-              <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-success">
+            <div className="relative mt-4 overflow-hidden rounded-control border border-success/20 bg-success-soft p-3 transition-colors duration-500 hover:bg-success/10 hover:border-success/30">
+              <div className="absolute top-0 left-0 h-full w-[200%] -translate-x-full animate-[shimmer_3s_infinite] bg-gradient-to-r from-transparent via-success/10 to-transparent"></div>
+              <p className="relative flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-success">
                 <ShieldCheck size={14} weight="fill" /> Căn cứ pháp lý
               </p>
-              <p className="mt-1.5 text-sm font-semibold text-ink">Bộ luật Lao động · Điều về thai sản</p>
-              <p className="mt-1 text-xs text-muted">Ngày áp dụng: theo thời điểm bạn chọn khi hỏi</p>
+              <p className="relative mt-1.5 text-sm font-semibold text-ink transition-colors duration-300 hover:text-success">Bộ luật Lao động · Điều về thai sản</p>
+              <p className="relative mt-1 text-xs text-muted">Ngày áp dụng: theo thời điểm bạn chọn khi hỏi</p>
             </div>
           </div>
         </aside>
