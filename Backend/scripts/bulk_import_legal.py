@@ -34,7 +34,7 @@ except Exception:  # noqa: BLE001
     print("Thiếu thư viện 'httpx'. Cài bằng: pip install httpx", file=sys.stderr)
     raise SystemExit(1)
 
-EXTS = {".pdf", ".docx", ".txt", ".html", ".htm"}
+EXTS = {".pdf", ".doc", ".docx", ".txt", ".html", ".htm", ".rtf"}
 
 # Matches "01/2013/QD-UBND", "168-2024-ND-CP", "15/2020/NĐ-CP", "03-2022-QH15" etc.
 _SO_HIEU_RE = re.compile(r"(\d{1,4})[/\-_](\d{4})[/\-_]([A-Za-zĐđ][A-Za-zĐđ0-9.\-]*)")

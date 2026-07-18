@@ -43,21 +43,12 @@ class LegalParser:
         self.current_khoan = None
         
     def extract_text_from_pdf(self, file_path: str) -> str:
-        """
-        Trích xuất toàn bộ text từ file PDF (Sử dụng pdfplumber).
-        """
+        """Trích xuất text từ PDF qua pipeline dùng chung (PyMuPDF → pdfplumber → OCR + clean)."""
         try:
-            import pdfplumber
-            text = ""
-            with pdfplumber.open(file_path) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
-            return text
-        except ImportError:
-            logger.error("Thư viện pdfplumber chưa được cài đặt.")
-            return ""
+            from app.pipelines.legal.extract_text import extract_text
+
+            data = open(file_path, "rb").read()
+            return extract_text(data, filename=file_path, mime="application/pdf")
         except Exception as e:
             logger.error(f"Lỗi khi đọc file PDF {file_path}: {e}")
             return ""
