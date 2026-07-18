@@ -1,29 +1,37 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, Clock, ListChecks, WarningCircle, ShieldCheck, Tag, Spinner } from '@phosphor-icons/react';
+import { CheckCircle, XCircle, Clock, ListChecks, WarningCircle, ShieldCheck, Tag, Spinner, FileText } from '@phosphor-icons/react';
 import { apiGet, apiPatch } from '../../lib/api';
 
-// Matches GET /admin/review item shape.
+// Matches GET /admin/review item shape (jobs + Neo4j).
 interface ReviewItem {
   id: string;
-  type: string; // social_post | legal_khoan | entity
+  job_id?: string;
+  type: string; // legal_ingest | social_ingest | social_post | legal_khoan | entity | job | brief
   source?: string;
+  so_hieu?: string | null;
   content?: string;
   reason?: string;
   created_at?: string;
+  payload?: { so_hieu?: string; ten?: string; file_ids?: string[]; vb_id?: string };
 }
 interface ReviewResponse { items: ReviewItem[]; total: number }
 
 type LocalStatus = 'pending' | 'approved' | 'rejected';
 
 const TYPE_LABELS: Record<string, string> = {
+  legal_ingest: 'Số hóa văn bản',
+  social_ingest: 'Thu thập MXH',
   social_post: 'Bài đăng MXH',
   legal_khoan: 'Điều/Khoản luật',
   entity: 'Thực thể bóc tách',
+  brief: 'Tóm tắt',
+  job: 'Job pipeline',
 };
 function typeLabel(t: string) { return TYPE_LABELS[t] || 'Mục cần duyệt'; }
 
 export default function ReviewPage() {
   const [items, setItems] = useState<ReviewItem[]>([]);
+  const [total, setTotal] = useState(0);
   const [statuses, setStatuses] = useState<Record<string, LocalStatus>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,7 +40,11 @@ export default function ReviewPage() {
   const load = () => {
     setLoading(true);
     apiGet<ReviewResponse>('/admin/review')
-      .then((data) => { setItems(data.items ?? []); setError(null); })
+      .then((data) => {
+        setItems(data.items ?? []);
+        setTotal(data.total ?? data.items?.length ?? 0);
+        setError(null);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : 'Lỗi tải hàng đợi duyệt'))
       .finally(() => setLoading(false));
   };
@@ -42,8 +54,13 @@ export default function ReviewPage() {
     setBusyId(id);
     setError(null);
     try {
-      await apiPatch(`/admin/review/${id}`, { action });
+      await apiPatch(`/admin/review/${encodeURIComponent(id)}`, { action });
       setStatuses((prev) => ({ ...prev, [id]: action === 'approve' ? 'approved' : 'rejected' }));
+      // Remove from list after a short beat so the operator sees the status change.
+      setTimeout(() => {
+        setItems((prev) => prev.filter((x) => x.id !== id));
+        setTotal((t) => Math.max(0, t - 1));
+      }, 600);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi khi xử lý mục duyệt');
     } finally {
@@ -51,20 +68,27 @@ export default function ReviewPage() {
     }
   };
 
+  const pending = items.filter((i) => (statuses[i.id] ?? 'pending') === 'pending');
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-10">
-      <div className="flex items-end justify-between">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <ListChecks size={28} weight="fill" className="text-primary" /> Hàng đợi Duyệt (Review Queue)
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Cán bộ phê duyệt các phần tử bị AI đánh dấu cần review (độ tin cậy thấp khi bóc tách BE1/BE2).
+            Văn bản số hóa lỗi parse/OCR và các mục AI đánh dấu cần cán bộ rà soát.
           </p>
         </div>
-        <button onClick={load} className="text-sm font-bold text-slate-500 hover:text-primary flex items-center gap-1.5 transition-colors">
-          <Spinner size={16} className={loading ? 'animate-spin' : 'hidden'} /> Làm mới
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
+            {pending.length}/{total} chờ duyệt
+          </span>
+          <button onClick={load} className="text-sm font-bold text-slate-500 hover:text-primary flex items-center gap-1.5 transition-colors">
+            <Spinner size={16} className={loading ? 'animate-spin' : 'hidden'} /> Làm mới
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -89,6 +113,7 @@ export default function ReviewPage() {
         <div className="grid grid-cols-1 gap-4">
           {items.map((item) => {
             const st = statuses[item.id] ?? 'pending';
+            const title = item.so_hieu || item.payload?.so_hieu || item.payload?.ten;
             return (
               <div
                 key={item.id}
@@ -102,19 +127,30 @@ export default function ReviewPage() {
                       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 rounded text-xs font-bold text-slate-600">
                         <Tag size={12} /> {typeLabel(item.type)}
                       </div>
+                      {item.source && (
+                        <span className="text-xs text-slate-400 font-mono">{item.source}</span>
+                      )}
                       {item.reason && (
-                        <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded text-xs font-bold">{item.reason}</span>
+                        <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded text-xs font-bold max-w-md truncate" title={item.reason}>
+                          {item.reason}
+                        </span>
                       )}
                       {item.created_at && (
                         <span className="text-xs text-slate-400 flex items-center gap-1 font-mono">
-                          <Clock size={12} /> {item.created_at}
+                          <Clock size={12} /> {item.created_at.replace('T', ' ').slice(0, 19)}
                         </span>
                       )}
                     </div>
+                    {title && (
+                      <h3 className={`font-bold text-base mb-1 flex items-center gap-2 ${st !== 'pending' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                        <FileText size={18} className="text-primary shrink-0" weight="fill" />
+                        {title}
+                      </h3>
+                    )}
                     <p className={`text-sm leading-relaxed ${st !== 'pending' ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
                       {item.content || '(Không có nội dung trích xuất)'}
                     </p>
-                    <p className="text-xs text-slate-400 font-mono mt-2">ID: {item.id}</p>
+                    <p className="text-xs text-slate-400 font-mono mt-2 truncate">ID: {item.id}</p>
                   </div>
 
                   {st === 'pending' ? (
@@ -123,6 +159,7 @@ export default function ReviewPage() {
                         onClick={() => handleAction(item.id, 'approve')}
                         disabled={busyId === item.id}
                         className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                        title="Đánh dấu đã xem / bỏ khỏi hàng đợi"
                       >
                         {busyId === item.id ? <Spinner size={16} className="animate-spin" /> : <CheckCircle size={18} weight="bold" />} Duyệt
                       </button>
