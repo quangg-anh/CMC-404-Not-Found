@@ -25,7 +25,14 @@ def normalize_social_payload(payload: dict[str, Any], config: BE2Config | None =
     if not platform or not external_id or not content:
         raise ValidationError("platform, external_id, and content are required")
     published_at = payload.get("published_at") or payload.get("thoi_gian")
-    thoi_gian = datetime.fromisoformat(published_at.replace("Z", "+00:00")) if isinstance(published_at, str) else published_at
+    thoi_gian: datetime | None = None
+    if isinstance(published_at, str):
+        try:
+            thoi_gian = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        except ValueError:
+            thoi_gian = None
+    elif published_at is not None:
+        thoi_gian = published_at
     if thoi_gian is None:
         thoi_gian = datetime.now(timezone.utc)
     author_raw = payload.get("author_id") or payload.get("author")

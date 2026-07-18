@@ -183,8 +183,6 @@ class SocialAlertFacade:
             return {k: SocialAlertFacade._json_safe(v) for k, v in value.items()}
         if isinstance(value, list):
             return [SocialAlertFacade._json_safe(v) for v in value]
-        if hasattr(value, "iso_format"):
-            return value.iso_format()
         if hasattr(value, "isoformat"):
             return value.isoformat()
         return value
@@ -299,11 +297,9 @@ class SocialAlertFacade:
         user_id: str,
     ) -> dict[str, Any]:
         """Triage an alert: change status or trigger suggestion draft creation in real DB."""
-        new_status = "investigating" if action == "investigate" else ("resolved" if action == "resolve" else "open")
         suggest_id = None
 
         if action == "create_suggest":
-            new_status = "investigating"
             suggest_id = str(uuid.uuid4())
             if self.pool and hasattr(self.pool, "acquire"):
                 try:
@@ -363,7 +359,7 @@ class SocialAlertFacade:
         return {
             "alert_id": alert_id,
             "previous_action": action,
-            "new_status": new_status,
+            "new_status": db_status,
             "note": note,
             "triaged_by": user_id,
             "triaged_at": datetime.now(timezone.utc).isoformat(),

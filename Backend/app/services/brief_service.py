@@ -130,6 +130,11 @@ class BriefService:
                     "Không thể tạo bản tóm tắt. Vui lòng thử lại.",
                     details={"brief_id": brief_id},
                 ) from exc
+        else:
+            raise BriefPersistenceError(
+                "Không thể tạo bản tóm tắt: Postgres không khả dụng.",
+                details={"brief_id": brief_id},
+            )
 
         return {
             "id": brief_id,
@@ -173,6 +178,11 @@ class BriefService:
                     "Không thể cập nhật bản tóm tắt.",
                     details={"brief_id": brief_id},
                 ) from exc
+        else:
+            raise BriefPersistenceError(
+                "Không thể cập nhật bản tóm tắt: Postgres không khả dụng.",
+                details={"brief_id": brief_id},
+            )
         return item
 
     async def publish_brief(self, brief_id: str, actor: Any) -> tuple[bool, dict[str, Any], list[str]]:
@@ -209,6 +219,11 @@ class BriefService:
                     "Không thể lưu trữ bản tóm tắt.",
                     details={"brief_id": brief_id},
                 ) from exc
+        else:
+            raise BriefPersistenceError(
+                "Không thể lưu trữ bản tóm tắt: Postgres không khả dụng.",
+                details={"brief_id": brief_id},
+            )
         return item
 
 

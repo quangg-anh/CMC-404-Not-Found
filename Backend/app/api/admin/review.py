@@ -207,7 +207,14 @@ async def process_review_item(
                         note,
                         job_id,
                     )
-                processed = result.endswith("1") if isinstance(result, str) else True
+                processed = False
+                if isinstance(result, str):
+                    try:
+                        processed = int(result.split()[-1]) > 0
+                    except (ValueError, IndexError):
+                        processed = result.endswith("1")
+                else:
+                    processed = bool(result)
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"job update failed: {exc}") from exc
 

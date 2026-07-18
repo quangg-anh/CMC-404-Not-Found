@@ -16,6 +16,19 @@ def _bool_env(name: str, default: str = "true") -> bool:
     return os.getenv(name, default).lower() not in {"0", "false", "no"}
 
 
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return int(raw)
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return float(raw)
+
 class BE2Config(BaseModel):
     # ---- OpenAI-compatible AI stack (no Ollama / no local torch) ----
     # Shared host for chat + embeddings unless embedding_base_url is overridden.
@@ -103,40 +116,40 @@ def get_config() -> BE2Config:
     llm_large = (os.getenv("BE2_LLM_LARGE_MODEL") or legacy_model or "gpt-4o").strip()
 
     emb_dim_raw = os.getenv("BE2_EMBEDDING_DIMENSION")
-    emb_dim = int(emb_dim_raw) if emb_dim_raw else 1536
+    emb_dim = int(emb_dim_raw) if emb_dim_raw and emb_dim_raw.strip() else 1536
 
     return BE2Config(
         openai_base_url=openai_base,
         openai_api_key=openai_key,
         embedding_provider=provider,
         embedding_model=os.getenv("BE2_EMBEDDING_MODEL", "text-embedding-3-small"),
-        embedding_batch_size=int(os.getenv("BE2_EMBEDDING_BATCH_SIZE", "32")),
-        embedding_timeout_s=float(os.getenv("BE2_EMBEDDING_TIMEOUT_S", "60")),
+        embedding_batch_size=_int_env("BE2_EMBEDDING_BATCH_SIZE", 32),
+        embedding_timeout_s=_float_env("BE2_EMBEDDING_TIMEOUT_S", 60.0),
         embedding_dimension=emb_dim,
         embedding_base_url=emb_base,
         embedding_api_key=emb_key,
         llm_gateway_url=os.getenv("BE2_LLM_GATEWAY_URL") or None,
         llm_local_model=llm_local,
         llm_large_model=llm_large,
-        llm_local_timeout_s=float(os.getenv("BE2_LLM_LOCAL_TIMEOUT_S", "20")),
-        llm_large_timeout_s=float(os.getenv("BE2_LLM_LARGE_TIMEOUT_S", "60")),
-        llm_retry_count=int(os.getenv("BE2_LLM_RETRY_COUNT", "1")),
-        topic_threshold=float(os.getenv("BE2_TOPIC_THRESHOLD", "0.55")),
-        link_threshold=float(os.getenv("BE2_LINK_THRESHOLD", "0.70")),
-        nli_confidence_threshold=float(os.getenv("BE2_NLI_CONFIDENCE_THRESHOLD", "0.70")),
-        alert_volume_threshold=int(os.getenv("BE2_ALERT_VOLUME_THRESHOLD", "3")),
-        alert_time_window_s=int(os.getenv("BE2_ALERT_TIME_WINDOW_S", "3600")),
-        alert_dedupe_window_s=int(os.getenv("BE2_ALERT_DEDUPE_WINDOW_S", "86400")),
-        alert_cooldown_s=int(os.getenv("BE2_ALERT_COOLDOWN_S", "3600")),
+        llm_local_timeout_s=_float_env("BE2_LLM_LOCAL_TIMEOUT_S", 20.0),
+        llm_large_timeout_s=_float_env("BE2_LLM_LARGE_TIMEOUT_S", 60.0),
+        llm_retry_count=_int_env("BE2_LLM_RETRY_COUNT", 1),
+        topic_threshold=_float_env("BE2_TOPIC_THRESHOLD", 0.55),
+        link_threshold=_float_env("BE2_LINK_THRESHOLD", 0.70),
+        nli_confidence_threshold=_float_env("BE2_NLI_CONFIDENCE_THRESHOLD", 0.70),
+        alert_volume_threshold=_int_env("BE2_ALERT_VOLUME_THRESHOLD", 3),
+        alert_time_window_s=_int_env("BE2_ALERT_TIME_WINDOW_S", 3600),
+        alert_dedupe_window_s=_int_env("BE2_ALERT_DEDUPE_WINDOW_S", 86400),
+        alert_cooldown_s=_int_env("BE2_ALERT_COOLDOWN_S", 3600),
         author_hmac_secret=os.getenv("BE2_AUTHOR_HMAC_SECRET"),
-        default_job_timeout_s=int(os.getenv("BE2_DEFAULT_JOB_TIMEOUT_S", "300")),
+        default_job_timeout_s=_int_env("BE2_DEFAULT_JOB_TIMEOUT_S", 300),
         redis_url=os.getenv("BE2_REDIS_URL", "redis://localhost:6379/0"),
         social_monitor_enabled=_bool_env("BE2_SOCIAL_MONITOR_ENABLED"),
         social_monitor_topics=_csv_env("BE2_SOCIAL_MONITOR_TOPICS"),
-        social_monitor_limit_per_topic=int(os.getenv("BE2_SOCIAL_MONITOR_LIMIT_PER_TOPIC", "10")),
-        social_monitor_lookback_hours=int(os.getenv("BE2_SOCIAL_MONITOR_LOOKBACK_HOURS", "24")),
-        social_monitor_cron_hour=int(os.getenv("BE2_SOCIAL_MONITOR_CRON_HOUR", "6")),
-        social_monitor_cron_minute=int(os.getenv("BE2_SOCIAL_MONITOR_CRON_MINUTE", "0")),
+        social_monitor_limit_per_topic=_int_env("BE2_SOCIAL_MONITOR_LIMIT_PER_TOPIC", 10),
+        social_monitor_lookback_hours=_int_env("BE2_SOCIAL_MONITOR_LOOKBACK_HOURS", 24),
+        social_monitor_cron_hour=_int_env("BE2_SOCIAL_MONITOR_CRON_HOUR", 6),
+        social_monitor_cron_minute=_int_env("BE2_SOCIAL_MONITOR_CRON_MINUTE", 0),
         facebook_access_token=os.getenv("BE2_FACEBOOK_ACCESS_TOKEN"),
         facebook_page_ids=_csv_env("BE2_FACEBOOK_PAGE_IDS"),
         facebook_api_version=os.getenv("BE2_FACEBOOK_API_VERSION", "v20.0"),
@@ -144,21 +157,21 @@ def get_config() -> BE2Config:
         youtube_api_keys=_csv_env("BE2_YOUTUBE_API_KEYS"),
         youtube_channel_ids=_csv_env("BE2_YOUTUBE_CHANNEL_IDS"),
         youtube_search_order=os.getenv("BE2_YOUTUBE_SEARCH_ORDER", "relevance"),
-        youtube_search_results_per_topic=int(os.getenv("BE2_YOUTUBE_SEARCH_RESULTS_PER_TOPIC", "25")),
+        youtube_search_results_per_topic=_int_env("BE2_YOUTUBE_SEARCH_RESULTS_PER_TOPIC", 25),
         youtube_region_code=os.getenv("BE2_YOUTUBE_REGION_CODE", "VN") or None,
         youtube_relevance_language=os.getenv("BE2_YOUTUBE_RELEVANCE_LANGUAGE", "vi") or None,
         youtube_filter_vietnamese=_bool_env("BE2_YOUTUBE_FILTER_VIETNAMESE"),
         youtube_comments_enabled=_bool_env("BE2_YOUTUBE_COMMENTS_ENABLED"),
-        youtube_comments_per_video=int(os.getenv("BE2_YOUTUBE_COMMENTS_PER_VIDEO", "20")),
-        youtube_comments_per_topic=int(os.getenv("BE2_YOUTUBE_COMMENTS_PER_TOPIC", "50")),
+        youtube_comments_per_video=_int_env("BE2_YOUTUBE_COMMENTS_PER_VIDEO", 20),
+        youtube_comments_per_topic=_int_env("BE2_YOUTUBE_COMMENTS_PER_TOPIC", 50),
         youtube_comments_as_posts=_bool_env("BE2_YOUTUBE_COMMENTS_AS_POSTS"),
-        youtube_min_comment_length=int(os.getenv("BE2_YOUTUBE_MIN_COMMENT_LENGTH", "12")),
+        youtube_min_comment_length=_int_env("BE2_YOUTUBE_MIN_COMMENT_LENGTH", 12),
         youtube_skip_comment_urls=_bool_env("BE2_YOUTUBE_SKIP_COMMENT_URLS"),
         youtube_skip_videos_without_comments=_bool_env("BE2_YOUTUBE_SKIP_VIDEOS_WITHOUT_COMMENTS"),
         youtube_require_topic_in_comments=_bool_env("BE2_YOUTUBE_REQUIRE_TOPIC_IN_COMMENTS"),
         forum_feed_urls=_csv_env("BE2_FORUM_FEED_URLS"),
         news_brief_enabled=_bool_env("BE2_NEWS_BRIEF_ENABLED", "false"),
-        news_brief_cron_hour=int(os.getenv("BE2_NEWS_BRIEF_CRON_HOUR", "7")),
-        news_brief_cron_minute=int(os.getenv("BE2_NEWS_BRIEF_CRON_MINUTE", "0")),
-        news_brief_limit_per_topic=int(os.getenv("BE2_NEWS_BRIEF_LIMIT_PER_TOPIC", "5")),
+        news_brief_cron_hour=_int_env("BE2_NEWS_BRIEF_CRON_HOUR", 7),
+        news_brief_cron_minute=_int_env("BE2_NEWS_BRIEF_CRON_MINUTE", 0),
+        news_brief_limit_per_topic=_int_env("BE2_NEWS_BRIEF_LIMIT_PER_TOPIC", 5),
     )

@@ -62,7 +62,7 @@ async def test_admin_alerts_triage_creates_suggestion_draft():
         res_triage = await client.patch("/admin/alerts/alert-meta-01", json=triage_payload, headers=headers)
         assert res_triage.status_code == 200
         triage_data = res_triage.json()["data"]
-        assert triage_data["new_status"] == "investigating"
+        assert triage_data["new_status"] == "triaged"
         # suggestions.id is a UUID (Data/schema/postgres/003); ensure a valid draft id was returned.
         assert triage_data["created_suggestion_id"]
         import uuid as _uuid

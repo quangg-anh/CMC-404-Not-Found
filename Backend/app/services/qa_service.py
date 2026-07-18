@@ -1047,7 +1047,7 @@ class QAService:
                 "refuse_reason": ["Citation contradicts the answer (NLI mâu thuẫn)."],
             }
 
-        confidence = llm_out.get("confidence", "high")
+        confidence = llm_out.get("confidence") or "medium"
         if faith["score"] < 0.5:
             confidence = "low"
         elif faith["score"] < 1.0 and confidence == "high":

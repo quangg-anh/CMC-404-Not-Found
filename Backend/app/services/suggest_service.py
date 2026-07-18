@@ -111,6 +111,11 @@ class SuggestService:
                     "Không thể tạo đề xuất đính chính. Vui lòng thử lại.",
                     details={"suggest_id": suggest_id},
                 ) from exc
+        else:
+            raise SuggestionPersistenceError(
+                "Không thể tạo đề xuất đính chính: Postgres không khả dụng.",
+                details={"suggest_id": suggest_id},
+            )
 
         return {
             "id": suggest_id,
@@ -161,5 +166,10 @@ class SuggestService:
                     "Không thể cập nhật đề xuất đính chính.",
                     details={"suggest_id": suggest_id},
                 ) from exc
+        else:
+            raise SuggestionPersistenceError(
+                "Không thể cập nhật đề xuất đính chính: Postgres không khả dụng.",
+                details={"suggest_id": suggest_id},
+            )
 
         return suggest

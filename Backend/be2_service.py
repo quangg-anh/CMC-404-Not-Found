@@ -73,11 +73,11 @@ OPENAI_API_KEY = os.getenv("BE2_OPENAI_API_KEY") or ""
 _legacy_model = (os.getenv("BE2_OPENAI_MODEL") or "").strip()
 LLM_LOCAL_MODEL = (os.getenv("BE2_LLM_LOCAL_MODEL") or _legacy_model or "gpt-4o-mini").strip()
 LLM_LARGE_MODEL = (os.getenv("BE2_LLM_LARGE_MODEL") or _legacy_model or "gpt-4o").strip()
-LLM_TIMEOUT = float(os.getenv("BE2_LLM_TIMEOUT_S", "60"))
+LLM_TIMEOUT = float(os.getenv("BE2_LLM_TIMEOUT_S") or "60")
 # Anti-loop generation controls for chat completions.
-LLM_TEMPERATURE = float(os.getenv("BE2_LLM_TEMPERATURE", "0.2"))
-LLM_MAX_TOKENS = int(os.getenv("BE2_LLM_MAX_TOKENS", "512"))
-LLM_REPEAT_PENALTY = float(os.getenv("BE2_LLM_REPEAT_PENALTY", "1.3"))
+LLM_TEMPERATURE = float(os.getenv("BE2_LLM_TEMPERATURE") or "0.2")
+LLM_MAX_TOKENS = int(os.getenv("BE2_LLM_MAX_TOKENS") or "512")
+LLM_REPEAT_PENALTY = float(os.getenv("BE2_LLM_REPEAT_PENALTY") or "1.3")
 
 _SYSTEM_PROMPT = (
     "Bạn là trợ lý pháp lý tiếng Việt. CHỈ được dựa vào các điều khoản pháp luật được cung cấp "

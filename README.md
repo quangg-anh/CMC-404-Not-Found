@@ -92,6 +92,12 @@ docker-compose -f Data/docker-compose.data.yml --env-file Data/.env up -d
 
 > **Qdrant dimension:** schema/seed mặc định dùng vector size **1536**. Nếu collection cũ đang ở 1024, recreate (purge Qdrant hoặc seed lại) trước khi ingest/RAG — lệch dim sẽ lỗi.
 
+> **Production checklist (bắt buộc trước khi công bố):**
+> 1. `APP_ENV=production` + `AUTH_TOKEN_SECRET` ≥32 ký tự ngẫu nhiên (không chứa `change-me`) + `ENABLE_DEV_TOKENS=false`
+> 2. `BE2_OPENAI_API_KEY` / `BE2_EMBEDDING_API_KEY` sống và đúng model embedding
+> 3. `Data/.env` `EMBEDDING_DIM=1536` khớp backend; recreate Qdrant nếu trước đó dùng 1024
+> 4. Chạy `cd Backend && pytest -vv` → 0 failed
+
 #### 2. Cài đặt Dependency và Khởi chạy Ứng dụng
 Sử dụng script PowerShell `run.ps1` để tự động tạo môi trường ảo Python (venv), cài đặt thư viện (`pip`, `npm`), seed dữ liệu mẫu, và bật các services:
 

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from app.pipelines.legal.version_diff import VersionDiff
 from app.pipelines.legal.normalize import normalize_so_hieu, generate_van_ban_id
 from app.pipelines.legal.pipeline import run_legal_ingest, reindex_khoan_from_neo4j, run_ner_backfill
-from app.exceptions import QueueUnavailableError
+from app.exceptions import JobEnqueueError, QueueUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -237,8 +237,12 @@ class LegalDiffFacade:
                     json.dumps(payload),
                     datetime.now(timezone.utc),
                 )
-        except Exception:
-            logger.warning("Failed to insert job metadata, continuing best-effort", exc_info=True, extra={"job_id": job_id})
+        except Exception as exc:
+            logger.exception("Failed to insert legal ingest job metadata", extra={"job_id": job_id})
+            raise JobEnqueueError(
+                f"Không thể ghi job legal_ingest vào Postgres: {exc}",
+                details={"job_id": job_id},
+            ) from exc
 
     async def _update_job_status(self, job_id: str, status: str, message: str | None = None) -> None:
         db_status = status if status in _JOB_STATUSES else "error"

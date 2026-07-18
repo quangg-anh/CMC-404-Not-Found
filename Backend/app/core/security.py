@@ -49,7 +49,7 @@ class SecuritySettings:
     def __init__(self) -> None:
         self.app_env: str = os.getenv("APP_ENV", "development").lower().strip()
         self.enable_dev_tokens: bool = os.getenv("ENABLE_DEV_TOKENS", "false").lower() in {"1", "true", "yes"}
-        self.token_ttl_s: int = int(os.getenv("AUTH_TOKEN_TTL_S", "43200"))
+        self.token_ttl_s: int = int(os.getenv("AUTH_TOKEN_TTL_S") or "43200")
 
         raw_secret = os.getenv("AUTH_TOKEN_SECRET")
 
@@ -225,9 +225,8 @@ def decode_or_mock_token(token_str: str | None) -> UserToken:
         # Fail-closed: an lx1 token that fails signature/expiry is anonymous, never citizen-by-default.
         return verified if verified is not None else UserToken(user_id="anon", roles=[Role.ANONYMOUS.value])
 
-    # Any other bearer string is treated as an unprivileged citizen (never admin). A real JWT
-    # verifier should replace this branch in production.
-    return UserToken(user_id=f"user-{t[:8]}", roles=[Role.CITIZEN.value])
+    # Unknown bearer strings are anonymous (never invent citizen privilege from garbage tokens).
+    return UserToken(user_id="anon", roles=[Role.ANONYMOUS.value])
 
 
 async def get_current_user(
