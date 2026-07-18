@@ -114,9 +114,9 @@ Script này sẽ tự động bật các cửa sổ mới cho Backend (FastAPI),
 #### 3. Truy cập Hệ thống
 Sau khi khởi chạy thành công, bạn có thể truy cập qua các địa chỉ sau:
 
-- **Frontend Admin:** [http://localhost:5173/admin/](http://localhost:5173/admin/)
+- **Frontend Admin:** [http://localhost:5173/](http://localhost:5173/)
   - Tài khoản kiểm thử: `admin@local` / `admin123`
-- **Frontend Citizen:** [http://localhost:5174/citizen/](http://localhost:5174/citizen/)
+- **Frontend Citizen:** [http://localhost:5174/](http://localhost:5174/)
   - Truy cập công khai, tự do trải nghiệm không cần đăng nhập.
 - **Backend API (FastAPI Docs):** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Backend Gateway:** [http://localhost:8002/health](http://localhost:8002/health)

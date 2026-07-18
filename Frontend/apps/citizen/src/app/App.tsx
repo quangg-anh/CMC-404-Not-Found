@@ -4,6 +4,7 @@ import AskPage from '../features/ask/AskPage';
 import VanBanPage from '../features/van-ban/VanBanPage';
 import NewsPage from '../features/news/NewsPage';
 import NewsDetailPage from '../features/news/NewsDetailPage';
+import { appBasename } from '../lib/base';
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -21,8 +22,9 @@ function AnimatedRoutes() {
 }
 
 export default function App() {
+  const basename = appBasename();
   return (
-    <BrowserRouter basename="/citizen">
+    <BrowserRouter basename={basename === '/' ? undefined : basename}>
       <AnimatedRoutes />
     </BrowserRouter>
   );

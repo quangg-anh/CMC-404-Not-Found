@@ -17,6 +17,7 @@ import {
   GitDiff,
 } from '@phosphor-icons/react';
 import { apiGet, clearToken, getToken } from '../lib/api';
+import { appBasename } from '../lib/base';
 import DashboardPage from '../features/dashboard/Dashboard';
 import AlertsPage from '../features/alerts/Alerts';
 import QAAdminPage from '../features/qa/QAAdmin';
@@ -156,7 +157,7 @@ function App() {
   }
 
   return (
-    <Router basename="/admin">
+    <Router basename={appBasename() === '/' ? undefined : appBasename()}>
       <AppContent onLogout={logout} />
     </Router>
   );

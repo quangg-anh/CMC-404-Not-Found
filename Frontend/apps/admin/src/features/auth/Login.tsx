@@ -24,7 +24,9 @@ export default function LoginPage({ onLogin }: { onLogin: (role: string) => void
       if (res.user.is_admin) {
         onLogin(res.user.role);
       } else {
-        window.location.href = '/citizen';
+        // Separate citizen deploy URL, or same-origin path when co-hosted.
+        const citizenUrl = (import.meta.env.VITE_CITIZEN_URL as string | undefined)?.trim();
+        window.location.href = citizenUrl || '/';
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Đăng nhập thất bại. Vui lòng thử lại.');
