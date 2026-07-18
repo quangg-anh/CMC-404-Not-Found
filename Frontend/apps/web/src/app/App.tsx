@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import {
   ShieldCheck,
   SquaresFour,
@@ -17,44 +17,50 @@ import {
   GitDiff,
 } from '@phosphor-icons/react';
 import { apiGet, clearToken, getToken } from '../lib/api';
-import { appBasename } from '../lib/base';
-import DashboardPage from '../features/dashboard/Dashboard';
-import AlertsPage from '../features/alerts/Alerts';
-import QAAdminPage from '../features/qa/QAAdmin';
-import IngestPage from '../features/ingest/Ingest';
-import DiffPage from '../features/diff/DiffPage';
-import GraphPage from '../features/graph/GraphPage';
-import JobsPage from '../features/jobs/JobsPage';
-import BriefsPage from '../features/briefs/BriefsPage';
-import SuggestionsPage from '../features/suggestions/SuggestionsPage';
-import SocialPage from '../features/social/SocialPage';
-import ReviewPage from '../features/review/ReviewPage';
-import KhoanPage from '../features/khoan/KhoanPage';
-import LoginPage from '../features/auth/Login';
+import DashboardPage from '../admin/features/dashboard/Dashboard';
+import AlertsPage from '../admin/features/alerts/Alerts';
+import QAAdminPage from '../admin/features/qa/QAAdmin';
+import IngestPage from '../admin/features/ingest/Ingest';
+import DiffPage from '../admin/features/diff/DiffPage';
+import GraphPage from '../admin/features/graph/GraphPage';
+import JobsPage from '../admin/features/jobs/JobsPage';
+import BriefsPage from '../admin/features/briefs/BriefsPage';
+import SuggestionsPage from '../admin/features/suggestions/SuggestionsPage';
+import SocialPage from '../admin/features/social/SocialPage';
+import ReviewPage from '../admin/features/review/ReviewPage';
+import KhoanPage from '../admin/features/khoan/KhoanPage';
+import LoginPage from '../admin/features/auth/Login';
+import HomePage from '../citizen/features/home/HomePage';
+import AskPage from '../citizen/features/ask/AskPage';
+import VanBanPage from '../citizen/features/van-ban/VanBanPage';
+import NewsPage from '../citizen/features/news/NewsPage';
+import NewsDetailPage from '../citizen/features/news/NewsDetailPage';
 
 type NavItem = { to: string; label: string; icon: typeof SquaresFour };
 
 const MAIN_NAV: NavItem[] = [
-  { to: '/', label: 'Tổng quan', icon: SquaresFour },
-  { to: '/alerts', label: 'Cảnh báo rủi ro', icon: Bell },
-  { to: '/social', label: 'Radar MXH', icon: Broadcast },
-  { to: '/qa', label: 'Hỏi đáp pháp lý', icon: ListMagnifyingGlass },
-  { to: '/review', label: 'Hàng đợi duyệt', icon: ListChecks },
-  { to: '/briefs', label: 'Bản tin', icon: Article },
-  { to: '/suggestions', label: 'Đề xuất đính chính', icon: PenNib },
+  { to: '/admin', label: 'Tổng quan', icon: SquaresFour },
+  { to: '/admin/alerts', label: 'Cảnh báo rủi ro', icon: Bell },
+  { to: '/admin/social', label: 'Radar MXH', icon: Broadcast },
+  { to: '/admin/qa', label: 'Hỏi đáp pháp lý', icon: ListMagnifyingGlass },
+  { to: '/admin/review', label: 'Hàng đợi duyệt', icon: ListChecks },
+  { to: '/admin/briefs', label: 'Bản tin', icon: Article },
+  { to: '/admin/suggestions', label: 'Đề xuất đính chính', icon: PenNib },
 ];
 
 const DATA_NAV: NavItem[] = [
-  { to: '/van-ban', label: 'Số hóa văn bản', icon: FileText },
-  { to: '/jobs', label: 'Tiến trình Jobs', icon: HardDrives },
-  { to: '/diff', label: 'So sánh Diff', icon: GitDiff },
-  { to: '/graph', label: 'Đồ thị tri thức', icon: ShareNetwork },
+  { to: '/admin/van-ban', label: 'Số hóa văn bản', icon: FileText },
+  { to: '/admin/jobs', label: 'Tiến trình Jobs', icon: HardDrives },
+  { to: '/admin/diff', label: 'So sánh Diff', icon: GitDiff },
+  { to: '/admin/graph', label: 'Đồ thị tri thức', icon: ShareNetwork },
 ];
 
 function Sidebar({ onLogout }: { onLogout: () => void }) {
   const location = useLocation();
   const isActive = (path: string) =>
-    path === '/' ? location.pathname === '/' : location.pathname === path || location.pathname.startsWith(`${path}/`);
+    path === '/admin'
+      ? location.pathname === '/admin' || location.pathname === '/admin/'
+      : location.pathname === path || location.pathname.startsWith(`${path}/`);
 
   const linkClass = (path: string) =>
     `group flex items-center gap-3 rounded-control px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
@@ -100,37 +106,15 @@ function Sidebar({ onLogout }: { onLogout: () => void }) {
           <ShieldCheck size={12} weight="fill" className="text-success" aria-hidden />
           Phiên cán bộ · có kiểm duyệt
         </p>
+        <Link to="/" className="mt-2 block px-1 text-[11px] font-semibold text-primary hover:underline">
+          ← Cổng người dân
+        </Link>
       </div>
     </aside>
   );
 }
 
-function AppContent({ onLogout }: { onLogout: () => void }) {
-  return (
-    <div className="relative min-h-screen bg-background font-sans text-ink">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(37,87,214,0.06),_transparent_50%)]" />
-      <Sidebar onLogout={onLogout} />
-      <main className="admin-page-enter relative ml-[268px] min-h-screen p-6 sm:p-8 lg:p-10">
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/alerts" element={<AlertsPage />} />
-          <Route path="/social" element={<SocialPage />} />
-          <Route path="/qa" element={<QAAdminPage />} />
-          <Route path="/review" element={<ReviewPage />} />
-          <Route path="/briefs" element={<BriefsPage />} />
-          <Route path="/suggestions" element={<SuggestionsPage />} />
-          <Route path="/van-ban" element={<IngestPage />} />
-          <Route path="/khoan/:id" element={<KhoanPage />} />
-          <Route path="/diff" element={<DiffPage />} />
-          <Route path="/graph" element={<GraphPage />} />
-          <Route path="/jobs" element={<JobsPage />} />
-        </Routes>
-      </main>
-    </div>
-  );
-}
-
-function App() {
+function AdminShell() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(getToken()));
 
   useEffect(() => {
@@ -157,10 +141,52 @@ function App() {
   }
 
   return (
-    <Router basename={appBasename() === '/' ? undefined : appBasename()}>
-      <AppContent onLogout={logout} />
-    </Router>
+    <div className="relative min-h-screen bg-background font-sans text-ink">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(37,87,214,0.06),_transparent_50%)]" />
+      <Sidebar onLogout={logout} />
+      <main className="admin-page-enter relative ml-[268px] min-h-screen p-6 sm:p-8 lg:p-10">
+        <Routes>
+          <Route index element={<DashboardPage />} />
+          <Route path="alerts" element={<AlertsPage />} />
+          <Route path="social" element={<SocialPage />} />
+          <Route path="qa" element={<QAAdminPage />} />
+          <Route path="review" element={<ReviewPage />} />
+          <Route path="briefs" element={<BriefsPage />} />
+          <Route path="suggestions" element={<SuggestionsPage />} />
+          <Route path="van-ban" element={<IngestPage />} />
+          <Route path="khoan/:id" element={<KhoanPage />} />
+          <Route path="diff" element={<DiffPage />} />
+          <Route path="graph" element={<GraphPage />} />
+          <Route path="jobs" element={<JobsPage />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
+        </Routes>
+      </main>
+    </div>
   );
 }
 
-export default App;
+function CitizenRoutes() {
+  const location = useLocation();
+  return (
+    <div key={location.pathname} className="ls-page min-h-[100dvh]">
+      <Routes location={location}>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/ask" element={<AskPage />} />
+        <Route path="/van-ban" element={<VanBanPage />} />
+        <Route path="/news" element={<NewsPage />} />
+        <Route path="/news/:id" element={<NewsDetailPage />} />
+      </Routes>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/admin/*" element={<AdminShell />} />
+        <Route path="/*" element={<CitizenRoutes />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}

@@ -109,12 +109,12 @@ export default function DashboardPage() {
         <div className="admin-card p-5">
           <h2 className="text-base font-bold text-ink">Nội dung chờ xử lý</h2>
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <Link to="/briefs" className="rounded-control border border-border bg-background/80 p-4 transition hover:border-primary/30 hover:bg-primary-soft/40">
+            <Link to="/admin/briefs" className="rounded-control border border-border bg-background/80 p-4 transition hover:border-primary/30 hover:bg-primary-soft/40">
               <p className="text-xs font-bold uppercase tracking-wide text-muted">Briefs</p>
               <p className="mt-1 text-2xl font-extrabold text-ink">{loading ? '—' : fmt(summary?.content_briefs.pending_review)}</p>
               <p className="mt-1 text-sm text-muted">draft / review</p>
             </Link>
-            <Link to="/suggestions" className="rounded-control border border-border bg-background/80 p-4 transition hover:border-accent/30 hover:bg-accent-soft/50">
+            <Link to="/admin/suggestions" className="rounded-control border border-border bg-background/80 p-4 transition hover:border-accent/30 hover:bg-accent-soft/50">
               <p className="text-xs font-bold uppercase tracking-wide text-muted">Đính chính sẵn sàng</p>
               <p className="mt-1 text-2xl font-extrabold text-ink">{loading ? '—' : fmt(summary?.content_briefs.ready_suggestions)}</p>
               <p className="mt-1 text-sm text-muted">status = ready</p>

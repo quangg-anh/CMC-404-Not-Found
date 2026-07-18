@@ -80,3 +80,8 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   const h: Record<string, string> = { Accept: 'application/json', Authorization: `Bearer ${getToken()}` };
   return parse<T>(await request(path, { method: 'POST', headers: h, body: form }));
 }
+
+/** Absolute URL for a public raw legal file (browser navigates/downloads directly). */
+export function fileUrl(fileId: string): string {
+  return `${resolveApiBase()}/citizen/legal/files/${encodeURIComponent(fileId)}`;
+}

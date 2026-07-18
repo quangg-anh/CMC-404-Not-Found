@@ -3,7 +3,7 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
-    "../../packages/ui-legal/**/*.{js,ts,jsx,tsx}",
+    "../../packages/ui-legal/src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
@@ -20,18 +20,29 @@ export default {
         accent: '#E85D0F',
         'accent-soft': '#FFF4ED',
         brand: '#E85D0F',
+        brandDark: '#C24A0A',
+        brandLight: '#FFF4ED',
+        civic: '#2557D6',
+        civicDark: '#1E46B8',
+        civicSoft: '#E8EEFB',
+        trust: '#168A45',
+        trustSoft: '#E8F7EE',
         destructive: '#DC2626',
         success: '#168A45',
         'success-soft': '#E8F7EE',
         warning: '#B54708',
         'warning-soft': '#FEF4E6',
-        // Soft-UI aliases kept for gradual migration
         secondaryAccent: '#2557D6',
       },
       fontFamily: {
         sans: ['"Be Vietnam Pro"', 'Inter', 'system-ui', 'sans-serif'],
         display: ['"Be Vietnam Pro"', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      maxWidth: {
+        content: '1200px',
+        chat: '1120px',
+        bubble: '760px',
       },
       boxShadow: {
         soft: '0 1px 2px rgba(17, 24, 39, 0.04), 0 8px 24px -12px rgba(37, 87, 214, 0.12)',
@@ -41,6 +52,13 @@ export default {
       borderRadius: {
         card: '16px',
         control: '14px',
+      },
+      minHeight: {
+        touch: '48px',
+        search: '64px',
+      },
+      transitionDuration: {
+        ui: '200ms',
       },
       backgroundImage: {
         'gradient-accent': 'linear-gradient(135deg, #2557D6, #E85D0F)',
