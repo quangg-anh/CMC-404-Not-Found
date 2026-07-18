@@ -25,6 +25,29 @@ _http_client: httpx.AsyncClient | None = None
 _llm_router: LLMRouter | None = None
 _embedder: Embedder | None = None
 _minio_storage: MinioStorage | None = None
+_redis_client: Any | None = None
+_redis_failed = False
+
+
+async def get_redis() -> Any | None:
+    """Optional Redis for QA cache. Returns None if unavailable (never raises)."""
+    global _redis_client, _redis_failed
+    if _redis_failed:
+        return None
+    if _redis_client is not None:
+        return _redis_client
+    try:
+        import redis.asyncio as redis_async
+
+        url = os.getenv("REDIS_URL") or os.getenv("BE2_REDIS_URL") or "redis://localhost:6379/0"
+        client = redis_async.from_url(url, encoding="utf-8", decode_responses=True)
+        await client.ping()
+        _redis_client = client
+        return _redis_client
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Redis unavailable for QA cache: %s", exc)
+        _redis_failed = True
+        return None
 
 
 def normalize_service_url(raw: str | None, *, default: str = "http://localhost:8002") -> str:

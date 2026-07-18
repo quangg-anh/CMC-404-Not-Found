@@ -49,12 +49,14 @@ class BE2Config(BaseModel):
     llm_local_model: str = "gpt-4o-mini"
     llm_large_model: str = "gpt-4o"
     llm_local_timeout_s: float = Field(default=20.0, gt=0)
-    llm_large_timeout_s: float = Field(default=60.0, gt=0)
-    llm_retry_count: int = Field(default=1, ge=0, le=3)
+    llm_large_timeout_s: float = Field(default=40.0, gt=0)
+    llm_retry_count: int = Field(default=0, ge=0, le=3)
 
     topic_threshold: float = Field(default=0.55, ge=0, le=1)
     link_threshold: float = Field(default=0.70, ge=0, le=1)
     nli_confidence_threshold: float = Field(default=0.70, ge=0, le=1)
+    qa_cache_ttl_s: int = Field(default=300, ge=0, le=86400)
+    qa_cache_enabled: bool = True
     alert_volume_threshold: int = Field(default=3, ge=1)
     alert_time_window_s: int = Field(default=3600, ge=1)
     alert_dedupe_window_s: int = Field(default=86400, ge=1)
@@ -137,6 +139,8 @@ def get_config() -> BE2Config:
         topic_threshold=_float_env("BE2_TOPIC_THRESHOLD", 0.55),
         link_threshold=_float_env("BE2_LINK_THRESHOLD", 0.70),
         nli_confidence_threshold=_float_env("BE2_NLI_CONFIDENCE_THRESHOLD", 0.70),
+        qa_cache_ttl_s=_int_env("BE2_QA_CACHE_TTL_S", 300),
+        qa_cache_enabled=_bool_env("BE2_QA_CACHE_ENABLED", "true"),
         alert_volume_threshold=_int_env("BE2_ALERT_VOLUME_THRESHOLD", 3),
         alert_time_window_s=_int_env("BE2_ALERT_TIME_WINDOW_S", 3600),
         alert_dedupe_window_s=_int_env("BE2_ALERT_DEDUPE_WINDOW_S", 86400),

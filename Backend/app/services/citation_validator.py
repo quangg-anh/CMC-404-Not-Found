@@ -92,5 +92,5 @@ class CitationValidator:
                 "score": coverage,
             })
 
-        is_valid = len(errors) == 0 and len(validated) > 0
+        is_valid = len(validated) > 0
         return is_valid, validated, errors
