@@ -157,9 +157,11 @@ class QAService:
         }
         tokens = re.findall(r"[\wÀ-ỹĐđ]+", raw)
         topic_tokens: list[str] = []
+        stop_plain = {cls._strip_accents(s) for s in stop}
         for token in tokens:
             plain = cls._strip_accents(token)
-            if len(plain) >= 4 and token not in stop and plain not in {cls._strip_accents(s) for s in stop}:
+            # Keep 3+ char topic terms (e.g. "cồn", "thuế") so generic hits like "mức phạt" alone cannot pass.
+            if len(plain) >= 3 and token not in stop and plain not in stop_plain:
                 topic_tokens.append(token)
 
         phrases: list[str] = []
@@ -172,6 +174,118 @@ class QAService:
             if token not in phrases:
                 phrases.append(token)
         return phrases[:10]
+
+    @staticmethod
+    def _contains_term(body: str, term: str) -> bool:
+        """Accent-stripped containment with whole-token match (avoids 'con' matching inside 'cong')."""
+        if not body or not term:
+            return False
+        if " " in term:
+            return term in body
+        return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", body) is not None
+
+    @classmethod
+    def _topic_relevance(cls, question: str, text: str) -> float:
+        """How well a provision matches the question's distinctive topic terms (not generic legal words)."""
+        required = [cls._strip_accents(x) for x in cls._required_keyword_queries(question)]
+        if not required:
+            return 1.0  # no distinctive topic → do not gate
+        body = cls._strip_accents(text or "")
+        if not body:
+            return 0.0
+        # Prefer multi-word phrases; fall back to single topic tokens so one hit (e.g. "cồn") is enough.
+        phrases = [r for r in required if " " in r]
+        if any(cls._contains_term(body, p) for p in phrases):
+            return 1.0
+        tokens = [r for r in required if " " not in r] or required
+        hits = sum(1 for req in tokens if cls._contains_term(body, req))
+        return hits / max(len(tokens), 1)
+
+    @classmethod
+    def _filter_relevant_candidates(
+        cls, candidates: list[CandidateKhoan], question: str, *, min_relevance: float = 0.34
+    ) -> list[CandidateKhoan]:
+        """Drop provisions that only match generic words (e.g. 'mức phạt') but miss the topic ('cồn')."""
+        if not candidates:
+            return []
+        if cls._KHOAN_ID_RE.search(question) or cls._SO_HIEU_RE.search(question):
+            return candidates
+        required = cls._required_keyword_queries(question)
+        if not required:
+            return candidates
+
+        scored: list[tuple[float, CandidateKhoan]] = []
+        for c in candidates:
+            rel = cls._topic_relevance(question, f"{c.khoan_id} {c.noi_dung}")
+            if rel >= min_relevance:
+                scored.append((rel + float(c.score or 0.0) * 0.1, c))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [c for _, c in scored]
+
+    @classmethod
+    def _answer_says_insufficient(cls, answer: str) -> bool:
+        """True when the model admits the retrieved context does not answer the question."""
+        norm = cls._strip_accents(answer or "")
+        markers = (
+            "chua du can cu",
+            "thieu can cu",
+            "khong du can cu",
+            "khong quy dinh ve",
+            "khong co quy dinh ve",
+            "ngu canh khong",
+            "ngu canh duoc cung cap khong",
+            "khong lien quan",
+            "chua co can cu",
+            "khong tim thay dieu khoan",
+            "khong du de tra loi",
+            "thieu quy dinh",
+        )
+        return any(m in norm for m in markers)
+
+    @classmethod
+    def _narrow_citations(
+        cls,
+        answer: str,
+        citations: list[dict[str, Any]],
+        question: str,
+        *,
+        max_n: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Keep only the most on-topic citations; drop all if the answer says context is insufficient."""
+        if not citations:
+            return []
+        if cls._answer_says_insufficient(answer):
+            return []
+
+        answer_norm = cls._strip_accents(answer or "")
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for cit in citations:
+            kid = str(cit.get("khoan_id") or "")
+            quote = str(cit.get("quote") or "")
+            rel = cls._topic_relevance(question, f"{kid} {quote}")
+            # Prefer clauses the answer actually cites by id / điều-khoản.
+            mention = 0.0
+            if kid and cls._strip_accents(kid) in answer_norm:
+                mention = 0.5
+            else:
+                # Match "Điều 5" / "Khoản 3" style mentions loosely.
+                m = re.search(r"::D(\d+)(?:\.K(\d+))?", kid)
+                if m:
+                    dieu, khoan = m.group(1), m.group(2)
+                    if dieu and f"dieu {dieu}" in answer_norm:
+                        mention += 0.25
+                    if khoan and f"khoan {khoan}" in answer_norm:
+                        mention += 0.25
+            score = rel + mention
+            if rel <= 0 and mention <= 0 and cls._required_keyword_queries(question):
+                continue  # off-topic and unused in answer
+            ranked.append((score, cit))
+
+        ranked.sort(key=lambda x: x[0], reverse=True)
+        # Require at least some topic signal when the question has distinctive terms.
+        if cls._required_keyword_queries(question):
+            ranked = [x for x in ranked if x[0] >= 0.34]
+        return [c for _, c in ranked[:max_n]]
 
     @staticmethod
     def _retrieval_text_ok(text: str) -> bool:
@@ -392,7 +506,8 @@ class QAService:
                 pass
 
         cleaned = [c for c in candidates if c.khoan_id and c.noi_dung and self._retrieval_text_ok(c.noi_dung)]
-        return self._prefer_best_document(cleaned, question)
+        preferred = self._prefer_best_document(cleaned, question)
+        return self._filter_relevant_candidates(preferred, question)
 
     async def _time_travel(
         self, candidates: list[CandidateKhoan], as_of: str
@@ -755,7 +870,7 @@ class QAService:
                 "refuse_reason": ["BE2 LLMRouter service unavailable."],
             }
 
-        context_limit = 4 if audience == "citizen" else 6
+        context_limit = 3 if audience == "citizen" else 4
         candidates = candidates[:context_limit]
         retrieved_context = "\n".join(f"[{c.khoan_id}] {c.noi_dung}" for c in candidates)
         prompt = (
@@ -763,11 +878,13 @@ class QAService:
             f"{retrieved_context}\n\n"
             f"Câu hỏi: {question}\n"
             "Chỉ trả lời dựa trên retrieved_context ở trên. Tuyệt đối không bịa. "
-            "Xác định chủ đề chính của câu hỏi rồi trích đúng dữ kiện có trong retrieved_context: mức tiền/mức hỗ trợ, "
-            "thời hạn, điều kiện, đối tượng áp dụng, hồ sơ/thủ tục, mức xử phạt, nghĩa vụ, quyền lợi hoặc thẩm quyền nếu câu hỏi cần. "
-            "Luôn nêu điều, khoản và số văn bản từ khoan_id cho từng ý quan trọng. "
-            "Không hỏi lại nếu retrieved_context đã có căn cứ đủ để trả lời; chỉ hỏi lại khi thiếu căn cứ thật sự. "
-            "Trả về JSON gồm: answer (string), citations (mảng {khoan_id, quote} trích nguyên văn), "
+            "Xác định chủ đề chính của câu hỏi rồi chỉ dùng điều khoản thật sự trả lời đúng chủ đề đó "
+            "(không viện dẫn điều khoản chỉ vì có từ chung như 'mức phạt', 'hồ sơ', 'thủ tục'). "
+            "Nếu retrieved_context không chứa quy định đúng chủ đề câu hỏi: nói rõ chưa đủ căn cứ / ngữ cảnh không quy định về chủ đề đó, "
+            "và trả về citations = [] (mảng rỗng). "
+            "Khi đủ căn cứ: chỉ trích 1-3 điều khoản chuẩn nhất, mỗi ý kèm số văn bản/Điều/Khoản từ khoan_id; "
+            "không liệt kê lan man các điều khoản phụ không cần thiết. "
+            "Trả về JSON gồm: answer (string), citations (mảng {khoan_id, quote} trích nguyên văn; rỗng nếu thiếu căn cứ), "
             "confidence (high|medium|low)."
         )
         try:
@@ -807,13 +924,32 @@ class QAService:
                 "refuse_reason": ["LLM output failed schema validation (needs_review)."],
             }
 
-        raw_answer = llm_out.get("answer", "")
+        raw_answer = str(llm_out.get("answer", "") or "")
         raw_citations = llm_out.get("citations", [])
 
-        # 3. Validate citations against canonical text (Neo4j)
-        is_valid, validated_citations, errors = await self.validator.validate_quotes(raw_citations, preloaded_sources=candidates)
+        # 3. If the model admits context does not answer the topic → keep the honest answer, no citations.
+        if self._answer_says_insufficient(raw_answer):
+            return {
+                "answer": raw_answer,
+                "citations": [],
+                "confidence": "low",
+                "graph_paths": [],
+                "graph_paths_status": "not_requested",
+                "graph_paths_reason": "No valid citations to trace",
+                "audience": audience,
+                "as_of": as_of_val,
+                "notices": notices,
+                "unverified": True,
+                "refuse_reason": ["Retrieved context does not cover the question topic."],
+            }
 
-        # 4. Fail-Closed Strategy (exact-match citation verification)
+        # 4. Validate citations against canonical text (Neo4j), then keep only the most on-topic ones.
+        is_valid, validated_citations, errors = await self.validator.validate_quotes(
+            raw_citations, preloaded_sources=candidates
+        )
+        validated_citations = self._narrow_citations(raw_answer, validated_citations or [], question, max_n=3)
+
+        # 5. Fail-Closed Strategy (exact-match + topic-relevant citation verification)
         if not is_valid or not validated_citations:
             return {
                 "answer": "Không đủ căn cứ hoặc trích dẫn pháp lý không khớp nguyên văn để trả lời an toàn câu hỏi này.",
@@ -823,10 +959,10 @@ class QAService:
                 "graph_paths_status": "not_requested",
                 "graph_paths_reason": "No valid citations after verification",
                 "audience": audience,
-                "refuse_reason": errors or ["All citations failed exact-match verification."],
+                "refuse_reason": errors or ["All citations failed exact-match or topic-relevance verification."],
             }
 
-        # 5. Idea 03 — entailment faithfulness: the citation must SUPPORT the answer, not just exist.
+        # 6. Idea 03 — entailment faithfulness: the citation must SUPPORT the answer, not just exist.
         # Keep entailment validation for both portals: a verbatim citation can still contradict
         # the generated conclusion, which must fail closed even on the latency-sensitive citizen UI.
         faith = await self._verify_faithfulness(raw_answer, validated_citations, candidates)

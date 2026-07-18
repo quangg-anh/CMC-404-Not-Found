@@ -86,8 +86,10 @@ _SYSTEM_PROMPT = (
     "Ví dụ [168/2024/ND-CP::D6.K1] nghĩa là Nghị định 168/2024/NĐ-CP, Điều 6, Khoản 1. "
     "Khi dẫn chiếu, PHẢI dùng đúng số Điều và số Khoản trong mã; không được tự bịa ra số Điều khác, "
     "không gọi nhầm 'Nghị định' thành 'Nghị quyết'.\n"
-    "Trả lời ngắn gọn, rõ ràng, tự nhiên bằng tiếng Việt. "
-    "Nếu Ngữ cảnh không đủ căn cứ, hãy nói rõ là chưa đủ căn cứ."
+    "Chỉ viện dẫn điều khoản thật sự trả lời đúng chủ đề câu hỏi; không liệt kê lan man các điều khoản "
+    "chỉ vì trùng từ chung (ví dụ 'mức phạt' khi câu hỏi về 'nồng độ cồn'). "
+    "Nếu Ngữ cảnh không đủ căn cứ hoặc không quy định về chủ đề câu hỏi, hãy nói rõ là chưa đủ căn cứ "
+    "và KHÔNG liệt kê căn cứ pháp lý."
 )
 
 
@@ -254,10 +256,12 @@ def _question_terms(question: str) -> list[str]:
         "ho", "so", "thu", "tuc", "dieu", "kien", "doi", "tuong", "thoi", "han", "muc", "phat",
         "can", "nhung", "gi", "la", "theo", "quy", "dinh", "hien", "hanh", "cua", "cho", "ve",
         "nghi", "quyet", "thong", "van", "ban", "phap", "luat", "noi", "ro", "lien", "quan",
+        "xu", "tham", "quyen", "trach", "nhiem", "nghia", "vu", "loi", "chinh", "sach", "bao", "nhieu",
     }
     terms: list[str] = []
     tokens = re.findall(r"[\wÀ-ỹĐđ]+", (question or "").lower())
-    meaningful = [t for t in tokens if len(_strip_accents(t)) >= 4 and _strip_accents(t) not in stop]
+    # 3+ chars so short topic words like "cồn"/"thuế" still gate relevance.
+    meaningful = [t for t in tokens if len(_strip_accents(t)) >= 3 and _strip_accents(t) not in stop]
     for n in (3, 2):
         for i in range(0, max(0, len(meaningful) - n + 1)):
             phrase = " ".join(meaningful[i:i + n])
@@ -268,28 +272,86 @@ def _question_terms(question: str) -> list[str]:
             terms.append(token)
     return terms[:10]
 
-def _select_context(ctx: list[tuple[str, str]], question: str) -> list[tuple[str, str]]:
-    """Keep one coherent document cluster so BE2 answers once, not once per document."""
-    if len(ctx) <= 3:
-        return ctx
+
+def _contains_term(body: str, term: str) -> bool:
+    if not body or not term:
+        return False
+    if " " in term:
+        return term in body
+    return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", body) is not None
+
+
+def _topic_relevance(question: str, text: str) -> float:
     terms = [_strip_accents(t) for t in _question_terms(question)]
+    if not terms:
+        return 1.0
+    body = _strip_accents(text or "")
+    if not body:
+        return 0.0
+    phrases = [t for t in terms if " " in t]
+    if any(_contains_term(body, p) for p in phrases):
+        return 1.0
+    tokens = [t for t in terms if " " not in t] or terms
+    hits = sum(1 for t in tokens if _contains_term(body, t))
+    return hits / max(len(tokens), 1)
+
+
+def _answer_says_insufficient(answer: str) -> bool:
+    norm = _strip_accents(answer or "")
+    markers = (
+        "chua du can cu",
+        "thieu can cu",
+        "khong du can cu",
+        "khong quy dinh ve",
+        "khong co quy dinh ve",
+        "ngu canh khong",
+        "ngu canh duoc cung cap khong",
+        "khong lien quan",
+        "chua co can cu",
+        "khong tim thay dieu khoan",
+        "khong du de tra loi",
+        "thieu quy dinh",
+    )
+    return any(m in norm for m in markers)
+
+
+def _select_context(ctx: list[tuple[str, str]], question: str) -> list[tuple[str, str]]:
+    """Keep topic-relevant clauses from one coherent document; drop off-topic noise."""
+    if not ctx:
+        return []
+
+    # Hard gate: if the question has distinctive topic terms, keep only clauses that match them.
+    terms = _question_terms(question)
+    relevant = ctx
+    if terms:
+        scored = []
+        for kid, text in ctx:
+            rel = _topic_relevance(question, f"{kid} {text}")
+            if rel >= 0.34:
+                scored.append((rel, kid, text))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        relevant = [(kid, text) for _, kid, text in scored]
+        if not relevant:
+            return []
+
+    if len(relevant) <= 3:
+        return relevant[:3]
+
     groups: dict[str, list[tuple[str, str]]] = {}
-    for kid, text in ctx:
+    for kid, text in relevant:
         groups.setdefault(_doc_key(kid), []).append((kid, text))
     if len(groups) <= 1:
-        return ctx[:6]
+        return relevant[:3]
 
-    def score(item: tuple[str, list[tuple[str, str]]]) -> tuple[int, int]:
+    def score(item: tuple[str, list[tuple[str, str]]]) -> tuple[float, int]:
         doc, items = item
-        body = _strip_accents(doc + " " + " ".join(t for _, t in items))
-        hits = sum(1 for term in terms if term and term in body)
-        return (hits, len(items))
+        body = doc + " " + " ".join(t for _, t in items)
+        return (_topic_relevance(question, body), len(items))
 
     best_doc, best_items = max(groups.items(), key=score)
-    best_score = score((best_doc, best_items))[0]
-    if best_score > 0:
-        return best_items[:6]
-    return ctx[:5]
+    if score((best_doc, best_items))[0] > 0:
+        return best_items[:3]
+    return relevant[:3]
 
 def _extractive_answer(question: str, ctx: list[tuple[str, str]]) -> str:
     if not ctx:
@@ -322,10 +384,12 @@ def _extractive_answer(question: str, ctx: list[tuple[str, str]]) -> str:
 async def _handle_qa(prompt: str, timeout_s: float, model: str | None = None) -> dict[str, Any]:
     ctx = _parse_context(prompt)
     question = _extract_question(prompt)
-    if not ctx:
+    top = _select_context(ctx, question) if ctx else []
+
+    if not top:
         user_msg = (
             f"Câu hỏi: {question}\n\n"
-            "Không có điều khoản pháp luật đã số hóa trong Ngữ cảnh. "
+            "Không có điều khoản pháp luật đã số hóa phù hợp với chủ đề câu hỏi trong Ngữ cảnh. "
             "Không được đoán mức tiền, điều, khoản, số luật/nghị định hoặc cơ quan có thẩm quyền nếu câu hỏi thiếu căn cứ. "
             "Hãy trả lời theo đúng cấu trúc sau bằng tiếng Việt, ngắn gọn, dễ hiểu:\n"
             "1) Trạng thái xác thực: nói rõ câu trả lời chưa có căn cứ pháp lý được hệ thống xác thực.\n"
@@ -333,7 +397,8 @@ async def _handle_qa(prompt: str, timeout_s: float, model: str | None = None) ->
             "3) Cần bổ sung để trả lời chính xác: liệt kê thông tin cần có như loại chính sách, địa phương, thời điểm áp dụng, đối tượng hưởng, số hiệu văn bản nếu biết.\n"
             "4) Cách tra cứu/nạp dữ liệu: đề nghị nạp hoặc chỉ rõ văn bản pháp luật liên quan.\n"
             "Bắt buộc nói rõ: câu trả lời này chưa có căn cứ pháp lý được hệ thống xác thực, "
-            "không thay thế tư vấn pháp lý chính thức. Không bịa số điều, khoản, văn bản."
+            "không thay thế tư vấn pháp lý chính thức. Không bịa số điều, khoản, văn bản. "
+            "Không liệt kê mục 'Nội dung có căn cứ' và không đưa căn cứ pháp lý."
         )
         llm_answer = await _llm_generate(
             "Bạn là trợ lý thông tin pháp lý tiếng Việt. Khi không có ngữ cảnh pháp lý được xác thực, "
@@ -350,10 +415,6 @@ async def _handle_qa(prompt: str, timeout_s: float, model: str | None = None) ->
             "confidence": "low",
         }
 
-    top = _select_context(ctx, question)[:5]
-    # Citations are ALWAYS verbatim from context — never from the model.
-    citations = [{"khoan_id": kid, "quote": text} for kid, text in top]
-
     user_msg = (
         f"Ngữ cảnh (các điều khoản pháp luật liên quan):\n{_context_block(top)}\n\n"
         f"Câu hỏi: {question}\n\n"
@@ -361,18 +422,26 @@ async def _handle_qa(prompt: str, timeout_s: float, model: str | None = None) ->
         "Chỉ dựa vào Ngữ cảnh; không dùng kiến thức ngoài, không tự thêm văn bản sửa đổi/bổ sung nếu Ngữ cảnh không nêu. "
         "Bố cục bắt buộc:\n"
         "1) **Kết luận ngắn:** trả lời trực tiếp câu hỏi trong 1-2 câu.\n"
-        "2) **Nội dung có căn cứ:** gạch đầu dòng các ý chính, mỗi ý kèm số văn bản, Điều, Khoản lấy từ mã khoản.\n"
-        "3) **Thiếu gì/giới hạn:** nếu Ngữ cảnh chưa đủ danh mục đầy đủ hoặc chỉ là biểu mẫu/trích đoạn, nói rõ thiếu căn cứ nào.\n"
+        "2) **Nội dung có căn cứ:** chỉ gạch đầu dòng các ý THẬT SỰ trả lời đúng chủ đề; "
+        "mỗi ý kèm số văn bản, Điều, Khoản lấy từ mã khoản. Tối đa 1-3 ý; không liệt kê lan man. "
+        "Nếu Ngữ cảnh không quy định về chủ đề câu hỏi: bỏ mục này hoặc ghi rõ không có căn cứ phù hợp.\n"
+        "3) **Thiếu gì/giới hạn:** nếu Ngữ cảnh chưa đủ hoặc không đúng chủ đề, nói rõ thiếu căn cứ nào.\n"
         "Nếu câu hỏi hỏi về hồ sơ/thủ tục, chỉ liệt kê giấy tờ/bước thủ tục thật sự xuất hiện trong Ngữ cảnh. "
         "Nếu hỏi về mức tiền, thời hạn, điều kiện, xử phạt, thẩm quyền, chỉ trích đúng dữ kiện có trong Ngữ cảnh. "
         "Không hỏi lại nếu Ngữ cảnh đủ; không kết luận chắc chắn khi Ngữ cảnh chỉ có một phần."
     )
     llm_answer = await _llm_generate(_SYSTEM_PROMPT, user_msg, timeout_s, model=model)
 
+    if llm_answer and _answer_says_insufficient(llm_answer):
+        return {"answer": llm_answer, "citations": [], "confidence": "low"}
+
+    # Citations are ALWAYS verbatim from topic-filtered context — never from the model.
+    citations = [{"khoan_id": kid, "quote": text} for kid, text in top[:3]]
+
     if llm_answer:
         return {"answer": llm_answer, "citations": citations, "confidence": "medium"}
 
-    # Grounded extractive fallback.
+    # Grounded extractive fallback (only when topic-relevant context exists).
     return {"answer": _extractive_answer(question, top), "citations": citations, "confidence": "medium"}
 
 
