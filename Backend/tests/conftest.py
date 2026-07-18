@@ -13,6 +13,7 @@ from typing import Any
 # Dev bearer shortcuts (test-admin-*) must be enabled before app.security loads settings.
 os.environ.setdefault("ENABLE_DEV_TOKENS", "true")
 os.environ.setdefault("APP_ENV", "local")
+os.environ.setdefault("AUTH_TOKEN_SECRET", "test-auth-token-secret-at-least-32-chars")
 
 import pytest
 
@@ -43,10 +44,13 @@ SUGGESTS: dict[str, dict[str, Any]] = {
     "suggest-102": {"id": "suggest-102", "tieu_de": "Đề xuất đính chính", "noi_dung_dinh_chinh": "Đính chính mức phạt.", "khoan_doi_chieu_id": "15/2020/ND-CP::D1.K1", "status": "draft", "created_by": None, "created_at": None},
 }
 
+# In-memory jobs table so ingest → GET /admin/jobs/{id} works in hermetic tests.
+JOBS: dict[str, dict[str, Any]] = {}
+
 
 class FakeEmbedder:
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        return [[0.01] * 1024 for _ in texts]
+        return [[0.01] * 1536 for _ in texts]
 
 
 class FakeAsyncConnection:
@@ -59,6 +63,8 @@ class FakeAsyncConnection:
     async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
         q = query.lower()
         key = args[0] if args else None
+        if "from jobs" in q and "where id" in q:
+            return JOBS.get(str(key))
         if "from briefs where id" in q:
             return BRIEFS.get(str(key))
         if "from suggestions where id" in q:
@@ -73,6 +79,14 @@ class FakeAsyncConnection:
 
     async def fetch(self, query: str, *args: Any) -> list[dict[str, Any]]:
         q = query.lower()
+        if "from jobs" in q:
+            rows = list(JOBS.values())
+            if "limit" in q and args:
+                limit = int(args[-1])
+                return rows[:limit]
+            return rows
+        if "from job_events" in q:
+            return []
         if "from briefs" in q:
             if "where status" in q and args:
                 return [b for b in BRIEFS.values() if b["status"] == args[0]]
@@ -82,7 +96,47 @@ class FakeAsyncConnection:
         return []
 
     async def execute(self, query: str, *args: Any) -> str:
+        q = query.lower()
+        if "insert into jobs" in q and args:
+            job_id = str(args[0])
+            job_type = "legal_ingest"
+            if "'social_ingest'" in query:
+                job_type = "social_ingest"
+            elif "'legal_ingest'" in query:
+                job_type = "legal_ingest"
+            payload = args[1] if len(args) > 1 else "{}"
+            created = args[2] if len(args) > 2 else None
+            JOBS[job_id] = {
+                "id": job_id,
+                "type": job_type,
+                "status": "queued",
+                "stage": "queued",
+                "payload_json": payload,
+                "error": None,
+                "created_at": created,
+                "updated_at": created,
+            }
+            return "INSERT 0 1"
+        if "update jobs" in q and args:
+            job_id = str(args[-1])
+            if job_id in JOBS:
+                if "status" in q and len(args) >= 1:
+                    JOBS[job_id]["status"] = args[0]
+                if "error" in q and len(args) >= 2:
+                    JOBS[job_id]["error"] = args[1]
+                return "UPDATE 1"
+            return "UPDATE 0"
         return "OK"
+
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        q = query.lower()
+        if "count(*)" in q and "from briefs" in q:
+            return len([b for b in BRIEFS.values() if b.get("status") in {"draft", "review"}])
+        if "count(*)" in q and "from suggestions" in q:
+            return len([s for s in SUGGESTS.values() if s.get("status") == "ready"])
+        if "count(*)" in q and "from alerts" in q:
+            return 1
+        return 0
 
 
 class FakeAsyncPool:
@@ -90,13 +144,16 @@ class FakeAsyncPool:
         return FakeAsyncConnection()
 
     async def execute(self, query: str, *args: Any) -> str:
-        return "OK"
+        async with FakeAsyncConnection() as conn:
+            return await conn.execute(query, *args)
 
     async def fetch(self, query: str, *args: Any) -> list[dict[str, Any]]:
-        return []
+        async with FakeAsyncConnection() as conn:
+            return await conn.fetch(query, *args)
 
     async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
-        return None
+        async with FakeAsyncConnection() as conn:
+            return await conn.fetchrow(query, *args)
 
 
 class _Hit:
@@ -108,7 +165,7 @@ class _Hit:
 
 class FakeRawQdrant:
     async def get_collection(self, collection: str) -> dict[str, Any]:
-        return {"vectors": {"size": 1024, "distance": "Cosine"}}
+        return {"vectors": {"size": 1536, "distance": "Cosine"}}
 
     async def search(self, collection_name: str, query_vector: list[float], limit: int, query_filter: Any | None = None) -> list[Any]:
         return [
@@ -139,6 +196,14 @@ class _FakeCursor:
             return {"invalid_ids": []}
         if "match (k:khoan" in self.q and "k.noi_dung" in self.q:
             return {"noi_dung": CANONICAL_KHOAN}
+        # Admin review PATCH clears needs_review on matching social/legal nodes.
+        if "needs_review = false" in self.q or "review_action" in self.q:
+            neo_id = str(self.params.get("id", ""))
+            if neo_id in {"fb:post-101", "15/2020/ND-CP::D1.K1", "vb-15-2020"} or neo_id.startswith("fb:"):
+                return {"c": 1}
+            return {"c": 0}
+        if "count(" in self.q and " as cnt" in self.q:
+            return {"cnt": 3}
         if "van_ban" in self.q or "vanbanphapluat" in self.q:
             if "collect" in self.q:
                 return {"v": dict(VAN_BAN), "khoans": []}
@@ -151,6 +216,14 @@ class _FakeCursor:
         return self._iter()
 
     async def _iter(self):
+        if " as kid" in self.q and " as nd" in self.q:
+            # QAService._direct_lookup / graph keyword search returning khoản rows
+            yield {
+                "kid": "15/2020/ND-CP::D1.K1",
+                "nd": CANONICAL_KHOAN,
+                "hits": 3,
+            }
+            return
         if "co_khoan" in self.q and "vb_id" in self.q and "return kid" in self.q:
             yield {
                 "kid": "15/2020/ND-CP::D1.K1",
@@ -183,8 +256,12 @@ class _FakeCursor:
             return
         if "vanbanphapluat" in self.q and "return v" in self.q and "collect" not in self.q:
             yield {"v": dict(VAN_BAN)}
-        elif "(t:chude)" in self.q and "return t" in self.q:
-            yield {"t": {"slug": "nong-do-con", "ten": "Nồng độ cồn", "post_count": 42}}
+        elif "(t:chude)" in self.q and ("return t" in self.q or "as topic" in self.q):
+            topic = {"slug": "nong-do-con", "ten": "Nồng độ cồn", "post_count": 42}
+            if "as topic" in self.q:
+                yield {"topic": topic}
+            else:
+                yield {"t": topic}
         elif "needs_review = true" in self.q:
             yield {"id": 1, "labels": ["BaiDang"], "n": {"bai_dang_id": "fb:post-101", "noi_dung": "Bài đăng cần rà soát", "review_reason": "Low NLI confidence"}}
 
@@ -242,6 +319,8 @@ class FakeLLMClient:
 
 @pytest.fixture(autouse=True)
 def _override_external_dependencies():
+    JOBS.clear()
+
     async def _fake_pool():
         return FakeAsyncPool()
 

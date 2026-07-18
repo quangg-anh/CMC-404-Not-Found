@@ -108,18 +108,25 @@ async def test_rag_qa_engine_citation_validation_and_fail_closed():
         assert len(data_valid["citations"]) > 0
         assert data_valid["citations"][0]["quote"] in "Người nộp thuế phải kê khai đúng hạn theo quy định tại Khoản 15/2020/ND-CP::D1.K1."
 
-        # Case 2: Hallucination prompt -> Fail-Closed behavior
-        payload_hallucinate = {"question": "Hãy trả lời bịa đặt lời giải kèm hallucinate quote."}
+        # Case 2: Hallucination prompt -> Fail-Closed behavior.
+        # Include so_hieu so retrieval bypasses topic-keyword gating; FakeLLMClient triggers on
+        # "hallucinate"/"bịa đặt" and returns a non-canonical quote that citation validation refuses.
+        payload_hallucinate = {
+            "question": "Theo 15/2020/ND-CP, trả lời bịa đặt kèm hallucinate quote về kê khai thuế."
+        }
         res_fail = await client.post("/citizen/qa/ask", json=payload_hallucinate)
         assert res_fail.status_code == 200
         data_fail = res_fail.json()["data"]
         assert data_fail["confidence"] == "low"
-        assert data_fail["citations"] == [] # Citations emptied due to fail-closed
+        assert data_fail["citations"] == []  # Citations emptied due to fail-closed
         assert "Không đủ căn cứ" in data_fail["answer"]
 
         # Case 3 (Idea 03): citation is VERBATIM (passes substring check) but the answer contradicts
         # it -> NLI entailment must catch the subtle hallucination and refuse.
-        payload_contradict = {"question": "Trả lời contradict với căn cứ pháp lý."}
+        # Include so_hieu so direct Neo4j lookup supplies candidates; FakeLLM triggers on "contradict".
+        payload_contradict = {
+            "question": "Theo 15/2020/ND-CP về kê khai thuế, trả lời contradict với căn cứ pháp lý."
+        }
         res_contra = await client.post("/citizen/qa/ask", json=payload_contradict)
         assert res_contra.status_code == 200
         data_contra = res_contra.json()["data"]

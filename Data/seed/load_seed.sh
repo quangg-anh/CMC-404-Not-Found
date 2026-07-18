@@ -13,7 +13,7 @@ NEO4J_PW="${NEO4J_PASSWORD:-change_me_neo4j}"
 PG_USER="${POSTGRES_USER:-app_be_rw}"
 PG_DB="${POSTGRES_DB:-legal_kg}"
 QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
-DIM="${EMBEDDING_DIM:-1024}"
+DIM="${EMBEDDING_DIM:-1536}"
 
 echo "[1/4] Neo4j: constraints + indexes"
 docker exec -i legal_neo4j cypher-shell -u neo4j -p "$NEO4J_PW" < "$ROOT/schema/neo4j_constraints.cypher"

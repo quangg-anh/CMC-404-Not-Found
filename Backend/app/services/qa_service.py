@@ -635,7 +635,8 @@ class QAService:
             claim_supported = False
             for premise in premises:
                 res = await self.nli.nli_pair(premise=premise, hypothesis=claim)
-                label = res.get("label")
+                raw_label = res.get("label")
+                label = getattr(raw_label, "value", raw_label)
                 # nli_pair already downgrades low-confidence contradictions to khong_ro, so any
                 # remaining "mau_thuan" is a confident contradiction.
                 if label == "mau_thuan":

@@ -26,7 +26,7 @@ Hệ thống LexSocial AI bao gồm hai giao diện web chính được tối ư
 ### 1️⃣ Phân hệ Admin Dashboard
 *Dành cho cơ quan nhà nước, cán bộ pháp chế, giám sát truyền thông, quản trị dữ liệu.*
 
-- Cung cấp bộ công cụ mạnh mẽ để cán bộ pháp chế quản lý kho dữ liệu luật, theo dõi biểu đồ thống kê từ mạng xã hội (tích hợp Nivo và Vis-network để trực quan hóa Đồ thị Tri thức).
+- Cung cấp bộ công cụ mạnh mẽ để cán bộ pháp chế quản lý kho dữ liệu luật, theo dõi biểu đồ thống kê từ mạng xã hội (đồ thị tri thức Admin dùng `react-force-graph-2d`).
 - **Số hóa văn bản pháp luật**: Tải lên PDF/HTML, tự động bóc tách cấu trúc (Điều, Khoản, Điểm) bằng NLP, lưu vào Neo4j và Qdrant.
 - **Theo dõi phiên bản (Version Diff)**: Tìm điểm khác biệt giữa các phiên bản luật, tự động tạo diff và ghi chú.
 - **Giám sát dư luận (Social Listening)**: Thu thập dữ liệu từ mạng xã hội, phân loại chủ đề (Topic Classification), và đối chiếu mức độ khớp với luật hiện hành (NLI).
@@ -49,7 +49,7 @@ Hệ thống kết hợp các công nghệ tối ưu cho Web và AI hiện đạ
 
 ### AI & Xử lý Ngữ nghĩa
 - **LLM Router (9R-Shield):** Điều hướng linh hoạt giữa local model (Gemma) và API model tùy độ phức tạp của câu hỏi.
-- **Embedding:** `bge-m3` / `vietnamese-sbert` hỗ trợ tiếng Việt.
+- **Embedding:** OpenAI-compatible API — mặc định `text-embedding-3-small` (dim **1536**). Cấu hình qua `BE2_OPENAI_*` / `BE2_EMBEDDING_*` trong `Backend/.env`.
 - **Xử lý tài liệu:** `pdfplumber`, `PyMuPDF`, Tesseract OCR.
 
 ### Backend (Python)
@@ -64,7 +64,7 @@ Hệ thống kết hợp các công nghệ tối ưu cho Web và AI hiện đạ
 
 ### Frontend (TypeScript / React)
 - **Kiến trúc Monorepo (Vite):** Quản lý 2 apps độc lập (`admin`, `citizen`) và shared packages (`ui-legal`, `api-client`).
-- **State Management & UI:** React Query, TailwindCSS, Vis-network / Nivo (Vẽ đồ thị).
+- **State Management & UI:** React Query, TailwindCSS; Admin graph canvas dùng `react-force-graph-2d`.
 
 ---
 
@@ -76,7 +76,10 @@ Dự án cung cấp một script hợp nhất `run.ps1` (trên PowerShell/Window
 - **Python** 3.10+
 - **Node.js** 20 LTS+
 - **Docker & Docker Compose**
-- **Ollama** (Đã cài sẵn model `bge-m3` để làm embedding: `ollama pull bge-m3`)
+- **OpenAI-compatible API** cho chat + embedding (không dùng Ollama). Copy `Backend/.env.example` → `Backend/.env` và điền:
+  - `BE2_OPENAI_BASE_URL`, `BE2_OPENAI_API_KEY`
+  - `BE2_EMBEDDING_MODEL=text-embedding-3-small`, `BE2_EMBEDDING_DIMENSION=1536`
+  - (tuỳ chọn) `BE2_EMBEDDING_BASE_URL` / `BE2_EMBEDDING_API_KEY` nếu khác host chat
 
 ### Các bước khởi chạy
 
@@ -86,6 +89,8 @@ Mở terminal trong thư mục gốc dự án và chạy Docker:
 docker-compose -f Data/docker-compose.data.yml --env-file Data/.env up -d
 ```
 *(Khởi chạy: Postgres, Neo4j, Qdrant, Redis, MinIO).*
+
+> **Qdrant dimension:** schema/seed mặc định dùng vector size **1536**. Nếu collection cũ đang ở 1024, recreate (purge Qdrant hoặc seed lại) trước khi ingest/RAG — lệch dim sẽ lỗi.
 
 #### 2. Cài đặt Dependency và Khởi chạy Ứng dụng
 Sử dụng script PowerShell `run.ps1` để tự động tạo môi trường ảo Python (venv), cài đặt thư viện (`pip`, `npm`), seed dữ liệu mẫu, và bật các services:
@@ -122,12 +127,18 @@ Sau khi khởi chạy thành công, bạn có thể truy cập qua các địa c
 ## 🧪 Tài liệu Kỹ thuật & Kiểm thử
 
 - **Cấu trúc dữ liệu & Lược đồ đồ thị:** Xem chi tiết trong thư mục `Data/schema/`. 
-- **Kiểm thử (Testing):** Dự án sử dụng `pytest`. Bạn có thể chạy unit test cho các pipeline xử lý luật bằng lệnh:
+- **Kiểm thử (Testing):** Dự án sử dụng `pytest`. Trong venv Backend, cài dependency rồi chạy:
   ```powershell
   cd Backend
+  python -m venv .venv
+  .\.venv\Scripts\Activate.ps1
+  pip install -r requirements.txt
+  $env:PYTHONPATH = "."
+  $env:ENABLE_DEV_TOKENS = "1"
+  $env:APP_ENV = "local"
+  $env:AUTH_TOKEN_SECRET = "test-auth-token-secret-at-least-32-chars"
   pytest -vv
   ```
-
 ---
 
 ## 👥 Đội ngũ (CMC 404 Not Found)

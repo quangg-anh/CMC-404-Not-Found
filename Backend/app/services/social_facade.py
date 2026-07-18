@@ -9,7 +9,7 @@ import httpx
 from app.adapters.neo4j_social import Neo4jSocialRepository
 from app.adapters.postgres_content import PostgresContentRepository
 from app.config import get_config
-from app.exceptions import BE2Error
+from app.exceptions import BE2Error, JobEnqueueError
 from app.pipelines.social.collectors import FacebookGraphCollector, ForumFeedCollector, YouTubeDataCollector
 from app.pipelines.social.ingest import SocialIngestService
 
@@ -25,23 +25,38 @@ class SocialAlertFacade:
         self.pg_repo = PostgresContentRepository(pool) if pool else None
 
     async def ingest_post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Trigger ingestion job into real Postgres jobs queue."""
+        """Trigger ingestion job into real Postgres jobs queue.
+
+        Only returns ``status=queued`` after a successful INSERT. Missing pool or DB errors
+        raise — never a false-success envelope.
+        """
+        if not (self.pool and hasattr(self.pool, "acquire")):
+            raise JobEnqueueError(
+                "Không thể xếp hàng social ingest: Postgres pool không khả dụng.",
+                details={"platform": payload.get("platform")},
+            )
+
         job_id = str(uuid.uuid4())
-        if self.pool and hasattr(self.pool, "acquire"):
-            try:
-                async with self.pool.acquire() as conn:
-                    await conn.execute(
-                        """
-                        INSERT INTO jobs (id, type, status, payload_json, created_at)
-                        VALUES ($1::uuid, 'social_ingest', 'queued', $2::jsonb, $3)
-                        ON CONFLICT DO NOTHING
-                        """,
-                        job_id,
-                        json.dumps(payload),
-                        datetime.now(timezone.utc),
-                    )
-            except Exception:
-                pass
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO jobs (id, type, status, payload_json, created_at)
+                    VALUES ($1::uuid, 'social_ingest', 'queued', $2::jsonb, $3)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    job_id,
+                    json.dumps(payload),
+                    datetime.now(timezone.utc),
+                )
+        except BE2Error:
+            raise
+        except Exception as exc:
+            logger.exception("social ingest INSERT failed", extra={"job_id": job_id})
+            raise JobEnqueueError(
+                f"Không thể xếp hàng social ingest: {exc}",
+                details={"job_id": job_id, "platform": payload.get("platform")},
+            ) from exc
 
         return {
             "job_id": job_id,

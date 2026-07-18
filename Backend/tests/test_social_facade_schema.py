@@ -65,3 +65,31 @@ async def test_list_topics_does_not_query_missing_postgres_table():
 
     facade = SocialAlertFacade(pool=_BoomPool(), neo4j_driver=None)
     assert await facade.list_topics() == []
+
+
+@pytest.mark.asyncio
+async def test_ingest_post_raises_when_insert_fails():
+    """INSERT failure must not return a false-success queued status."""
+    from app.exceptions import JobEnqueueError
+
+    class _FailConn:
+        async def execute(self, query: str, *args):  # noqa: ANN001
+            raise RuntimeError("connection refused")
+
+    facade = SocialAlertFacade(pool=_Pool(_FailConn()), neo4j_driver=None)
+    with pytest.raises(JobEnqueueError) as ei:
+        await facade.ingest_post(
+            {"platform": "facebook", "url": "https://facebook.com/post/1", "noi_dung": "x"}
+        )
+    assert ei.value.code == "job_enqueue_error"
+
+
+@pytest.mark.asyncio
+async def test_ingest_post_raises_when_pool_missing():
+    from app.exceptions import JobEnqueueError
+
+    facade = SocialAlertFacade(pool=None, neo4j_driver=None)
+    with pytest.raises(JobEnqueueError):
+        await facade.ingest_post(
+            {"platform": "facebook", "url": "https://facebook.com/post/1", "noi_dung": "x"}
+        )

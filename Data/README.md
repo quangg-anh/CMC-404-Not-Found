@@ -81,7 +81,7 @@ Data/
       003_content_publish.sql # briefs, suggestions, alerts, audit_log
       004_retention_audit.sql # archived_at, v_publish_audit, read-only roles
     qdrant/
-      collections.json        # spec khoan/baidang/chude (dim 1024)
+      collections.json        # spec khoan/baidang/chude (dim 1536)
       extract_khoan.schema.json # JSON Schema output NER BE1
   seed/
     van_ban_mau/nghi_dinh_mau.cypher, nghi_dinh_02_mau.cypher
@@ -112,7 +112,7 @@ Format khớp `Backend/scripts/eval_be2_gold.py`: `links.json`→`expected_khoan
 | Đối tác | DB giao | Ràng buộc |
 |---|---|---|
 | **BE1** | schema Khoản, seed raw, MERGE mẫu (`nghi_dinh_mau.cypher`) | MERGE theo key (`khoan_id`, `dieu_id`…) để idempotent; báo property thiếu |
-| **BE2** | collections `baidang`/`chude`, dim vector | đổi model embedding phải báo → cập nhật `EMBEDDING_DIM` + `system_config.embedding_dim` |
+| **BE2** | collections `baidang`/`chude`, dim vector | đổi model embedding phải báo → cập nhật `EMBEDDING_DIM` (1536) + recreate Qdrant |
 | **BE3** | connection, migration version, signed URL policy MinIO | **không** ALTER schema tay trên prod; đổi qua migration file mới |
 | **FE** | enum status/visibility ổn định (qua API) | không query DB trực tiếp |
 

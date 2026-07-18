@@ -127,6 +127,7 @@ async def be2_error_handler(request: Request, exc: BE2Error) -> JSONResponse:
         "brief_persistence_error",
         "suggestion_persistence_error",
         "queue_unavailable",
+        "job_enqueue_error",
         "graph_paths_unavailable"
     }:
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE

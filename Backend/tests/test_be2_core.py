@@ -61,9 +61,10 @@ class FakeRepo:
         self.edges.append((bai_dang_id, candidate.khoan_id, method))
 
 class FakeResponse:
-    def __init__(self, payload, text=""):
+    def __init__(self, payload, text="", status_code=200):
         self.payload = payload
         self.text = text
+        self.status_code = status_code
     def raise_for_status(self):
         return None
     def json(self):

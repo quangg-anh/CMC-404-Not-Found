@@ -12,7 +12,7 @@ $NEO4J_PW  = if ($env:NEO4J_PASSWORD) { $env:NEO4J_PASSWORD } else { 'change_me_
 $PG_USER   = if ($env:POSTGRES_USER)  { $env:POSTGRES_USER }  else { 'app_be_rw' }
 $PG_DB     = if ($env:POSTGRES_DB)    { $env:POSTGRES_DB }    else { 'legal_kg' }
 $QDRANT    = if ($env:QDRANT_URL)     { $env:QDRANT_URL }     else { 'http://localhost:6333' }
-$DIM       = if ($env:EMBEDDING_DIM)  { [int]$env:EMBEDDING_DIM } else { 1024 }
+$DIM       = if ($env:EMBEDDING_DIM)  { [int]$env:EMBEDDING_DIM } else { 1536 }
 
 Write-Host "[1/4] Neo4j: constraints + indexes"
 Get-Content "$ROOT/schema/neo4j_constraints.cypher" -Raw | docker exec -i legal_neo4j cypher-shell -u neo4j -p $NEO4J_PW
