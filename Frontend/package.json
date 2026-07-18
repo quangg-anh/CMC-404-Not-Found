@@ -1,17 +1,19 @@
 {
   "name": "frontend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "LexSocial AI — unified web (citizen + admin)",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "start": "serve -s apps/web/dist -l tcp://0.0.0.0:3000",
+    "preview": "npm run preview -w web"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "serve": "^14.2.4"
+  }
 }

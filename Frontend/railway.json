@@ -1,0 +1,12 @@
+# Railway service config when Root Directory = Frontend
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm run build"
+  },
+  "deploy": {
+    "startCommand": "npx serve -s apps/web/dist -l tcp://0.0.0.0:$PORT",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}

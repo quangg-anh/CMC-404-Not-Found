@@ -97,7 +97,7 @@ docker-compose -f Data/docker-compose.data.yml --env-file Data/.env up -d
 > 2. `BE2_OPENAI_API_KEY` / `BE2_EMBEDDING_API_KEY` sống và đúng model embedding
 > 3. `Data/.env` `EMBEDDING_DIM=1536` khớp backend; recreate Qdrant nếu trước đó dùng 1024
 > 4. Chạy `cd Backend && pytest -vv` → 0 failed
-> 5. **Railway FE:** một service Frontend với `VITE_API_URL=https://<backend-public>.up.railway.app` (HTTPS public, không dùng `*.railway.internal`), rồi **Redeploy**. Backend: `CORS_ALLOW_ALL=true`, listen `--host 0.0.0.0 --port $PORT`. Citizen: `/`, Admin: `/admin`.
+> 5. **Railway FE:** Root Directory = `Frontend`. **Không** đặt Build Command = `npm ci && …` (Railpack đã install — lần 2 gây EBUSY). Chỉ cần `VITE_API_URL=https://<backend-public>.up.railway.app`, Redeploy. Citizen `/`, Admin `/admin`. Backend: `CORS_ALLOW_ALL=true`.
 
 #### 2. Cài đặt Dependency và Khởi chạy Ứng dụng
 Sử dụng script PowerShell `run.ps1` để tự động tạo môi trường ảo Python (venv), cài đặt thư viện (`pip`, `npm`), seed dữ liệu mẫu, và bật các services:

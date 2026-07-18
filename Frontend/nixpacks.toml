@@ -1,0 +1,20 @@
+# Railway / Nixpacks — Root Directory must be `Frontend`
+#
+# Do NOT set Build Command to `npm ci && …` — Railpack already installs
+# deps; a second `npm ci` causes EBUSY on node_modules/.vite|.cache.
+#
+# In Railway dashboard (if overriding):
+#   Install:  (leave empty — uses this file)
+#   Build:    (leave empty — uses this file)
+#   Start:    (leave empty — uses this file)
+
+[phases.install]
+# Vite/tsc live in web's devDependencies — must install them even when NODE_ENV=production
+cmds = ["npm ci --include=dev"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+# $PORT is set by Railway; bind all interfaces for the proxy
+cmd = "npx serve -s apps/web/dist -l tcp://0.0.0.0:$PORT"
