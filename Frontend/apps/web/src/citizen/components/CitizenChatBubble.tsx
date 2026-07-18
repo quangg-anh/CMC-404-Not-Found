@@ -105,6 +105,7 @@ export function CitizenChatBubble() {
         confidence?: 'high' | 'medium' | 'low';
         unverified?: boolean;
         degraded?: boolean;
+        refused?: boolean;
       }>('/citizen/qa/ask', { question });
       const answer =
         (data.answer || '').trim() ||
