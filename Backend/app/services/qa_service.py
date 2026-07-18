@@ -10,6 +10,7 @@ from app.intelligence.llm_router import LLMRouter
 from app.intelligence.embedder import Embedder
 from app.intelligence.nli import NLIService
 from app.adapters.qdrant_vector import QdrantVectorClient
+from app.pipelines.legal.normalize import normalize_so_hieu
 
 
 # Chitchat / identity / meta — must NEVER retrieve or cite legal provisions.
@@ -151,8 +152,54 @@ class QAService:
     # Explicit legal references a user may type directly into the question.
     # Khoản/Điều id, e.g. "01/2016/NQ-HDND::D1.K2" or "03-VBHN-BTC||12-02-2026::D40".
     _KHOAN_ID_RE = re.compile(r"[A-Za-z0-9/.|\-]+::D\d+(?:\.K\d+)?")
-    # Document number (số hiệu), e.g. "01/2016/NQ-HDND", "168/2024/NĐ-CP".
-    _SO_HIEU_RE = re.compile(r"\d{1,4}/\d{4}/[A-Za-zĐĐđ\-]+")
+    # Document number (số hiệu): with year "15/2020/ND-CP" OR without "41/NQ-CP".
+    _SO_HIEU_RE = re.compile(
+        r"\b\d{1,4}/(?:\d{4}/)?[A-Za-zĐđ][A-Za-zĐđ0-9.\-]*",
+        re.IGNORECASE,
+    )
+    _DOC_OVERVIEW_RE = re.compile(
+        r"(?:"
+        r"gom\s+nhung\s+gi|gom\s+nhung|noi\s+dung(\s+gi)?|tom\s+tat|"
+        r"quy\s+dinh\s+gi|toan\s+van|noi\s+dung\s+chinh|yeu\s+cau\s+gi|"
+        r"quy\s+dinh\s+nhung\s+gi|noi\s+dung\s+ra\s+sao"
+        r")",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _extract_so_hieus(cls, question: str) -> list[str]:
+        """Extract and normalize số hiệu tokens from a natural-language question."""
+        found = cls._SO_HIEU_RE.findall(question or "")
+        out: list[str] = []
+        for raw in found:
+            norm = normalize_so_hieu(raw)
+            if norm and norm not in out:
+                out.append(norm)
+        return out
+
+    @staticmethod
+    def _so_hieu_matches(stored: str, needle: str) -> bool:
+        """Match số hiệu allowing year omission: 41/NQ-CP ↔ 41/2021/NQ-CP."""
+        a = normalize_so_hieu(stored or "")
+        b = normalize_so_hieu(needle or "")
+        if not a or not b:
+            return False
+        if a == b or a.endswith("/" + b) or b.endswith("/" + a) or a.endswith(b) or b.endswith(a):
+            return True
+        ap, bp = a.split("/"), b.split("/")
+        if len(ap) >= 2 and len(bp) >= 2 and ap[0] == bp[0] and ap[-1] == bp[-1]:
+            return True
+        return False
+
+    @classmethod
+    def _is_doc_overview_question(cls, question: str) -> bool:
+        norm = cls._strip_accents(question or "")
+        if cls._extract_so_hieus(question) and (
+            cls._DOC_OVERVIEW_RE.search(norm)
+            or any(k in norm for k in ("gom", "noi dung", "tom tat", "la gi", "nhung gi"))
+        ):
+            return True
+        return bool(cls._DOC_OVERVIEW_RE.search(norm))
 
     @staticmethod
     def _strip_accents(text: str) -> str:
@@ -166,7 +213,7 @@ class QAService:
         if not raw:
             return False
         # Explicit legal anchors always treated as legal questions.
-        if cls._SO_HIEU_RE.search(raw) or cls._KHOAN_ID_RE.search(raw):
+        if cls._extract_so_hieus(raw) or cls._KHOAN_ID_RE.search(raw):
             return False
         norm = cls._strip_accents(raw)
         compact = re.sub(r"\s+", " ", norm).strip()
@@ -391,7 +438,7 @@ class QAService:
         """Drop provisions that only match generic words (e.g. 'mức phạt') but miss the topic ('cồn')."""
         if not candidates:
             return []
-        if cls._KHOAN_ID_RE.search(question) or cls._SO_HIEU_RE.search(question):
+        if cls._KHOAN_ID_RE.search(question) or cls._extract_so_hieus(question):
             return candidates
         required = cls._required_keyword_queries(question)
         if not required:
@@ -513,7 +560,7 @@ class QAService:
             return []
 
         # Document-id questions: keep clauses from the asked văn bản (overview answers).
-        so_hieus = [cls._strip_accents(s) for s in cls._SO_HIEU_RE.findall(question or "")]
+        so_hieus = [cls._strip_accents(s) for s in cls._extract_so_hieus(question or "")]
         if so_hieus or cls._KHOAN_ID_RE.search(question or ""):
             matched = []
             for cit in citations:
@@ -587,7 +634,7 @@ class QAService:
         """
         if len(candidates) <= 3:
             return candidates
-        if cls._KHOAN_ID_RE.search(question) or cls._SO_HIEU_RE.search(question):
+        if cls._KHOAN_ID_RE.search(question) or cls._extract_so_hieus(question):
             return candidates
 
         groups: dict[str, list[CandidateKhoan]] = {}
@@ -628,13 +675,17 @@ class QAService:
         Vector search matches by meaning, so typing a raw id ("nội dung X::D1.K2") returns semantic
         garbage. This shortcut resolves the exact Khoản (or all Khoản of a văn bản when only the số
         hiệu is given) so a direct citation lookup always works.
+
+        Số hiệu matching is flexible: ``41/NQ-CP`` matches ``41/NQ-CP`` and ``41/2021/NQ-CP``.
         """
         if not (self.driver and hasattr(self.driver, "session")):
             return []
         khoan_ids = list(dict.fromkeys(self._KHOAN_ID_RE.findall(question)))
-        # Số hiệu tokens that are NOT merely the prefix of an already-captured full khoản id.
-        so_hieus = [s for s in dict.fromkeys(self._SO_HIEU_RE.findall(question))
-                    if not any(k.startswith(s + "::") for k in khoan_ids)]
+        so_hieus = [
+            s
+            for s in self._extract_so_hieus(question)
+            if not any(k.upper().startswith(s + "::") for k in khoan_ids)
+        ]
         if not khoan_ids and not so_hieus:
             return []
         pub = "AND coalesce(k.visibility, 'public') = 'public'" if audience == "citizen" else ""
@@ -649,22 +700,56 @@ class QAService:
         try:
             async with self.driver.session() as session:
                 if khoan_ids:
-                    q = f"MATCH (v:VanBanPhapLuat)-[:CO_DIEU]->(:Dieu)-[:CO_KHOAN]->(k:Khoan) WHERE k.khoan_id IN $ids {pub} {temporal} RETURN k.khoan_id AS kid, k.noi_dung AS nd"
+                    q = (
+                        "MATCH (v:VanBanPhapLuat)-[:CO_DIEU]->(:Dieu)-[:CO_KHOAN]->(k:Khoan) "
+                        f"WHERE k.khoan_id IN $ids {pub} {temporal} "
+                        "RETURN k.khoan_id AS kid, k.noi_dung AS nd"
+                    )
                     res = await session.run(q, ids=khoan_ids, as_of=as_of)
                     async for r in res:
-                        out.append(CandidateKhoan(khoan_id=str(r["kid"] or ""), noi_dung=str(r["nd"] or ""), score=1.0))
+                        out.append(
+                            CandidateKhoan(
+                                khoan_id=str(r["kid"] or ""),
+                                noi_dung=str(r["nd"] or ""),
+                                score=1.0,
+                            )
+                        )
                 if so_hieus:
+                    # Loose prefilter in Cypher, precise match in Python (year-optional).
                     q2 = (
                         "MATCH (v:VanBanPhapLuat)-[:CO_DIEU]->(:Dieu)-[:CO_KHOAN]->(k:Khoan) "
-                        f"WHERE v.so_hieu IN $sh {pub} {temporal} "
-                        "RETURN k.khoan_id AS kid, k.noi_dung AS nd LIMIT 40"
+                        "WHERE any(sh IN $sh WHERE "
+                        "  toUpper(replace(coalesce(v.so_hieu,''), 'Đ', 'D')) = sh "
+                        "  OR toUpper(replace(coalesce(v.so_hieu,''), 'Đ', 'D')) STARTS WITH split(sh,'/')[0] + '/' "
+                        "  OR toUpper(replace(coalesce(v.so_hieu,''), 'Đ', 'D')) CONTAINS sh "
+                        "  OR toUpper(replace(coalesce(v.so_hieu,''), 'Đ', 'D')) ENDS WITH '/' + split(sh,'/')[-1] "
+                        f") {pub} {temporal} "
+                        "RETURN v.so_hieu AS so, k.khoan_id AS kid, k.noi_dung AS nd "
+                        "LIMIT 80"
                     )
                     res2 = await session.run(q2, sh=so_hieus, as_of=as_of)
                     async for r in res2:
-                        out.append(CandidateKhoan(khoan_id=str(r["kid"] or ""), noi_dung=str(r["nd"] or ""), score=0.95))
+                        so = str(r.get("so") or "")
+                        if not any(self._so_hieu_matches(so, sh) for sh in so_hieus):
+                            continue
+                        out.append(
+                            CandidateKhoan(
+                                khoan_id=str(r["kid"] or ""),
+                                noi_dung=str(r["nd"] or ""),
+                                score=0.98,
+                            )
+                        )
         except Exception:
             return [c for c in out if c.khoan_id and c.noi_dung]
-        return [c for c in out if c.khoan_id and c.noi_dung]
+        # De-dupe by khoan_id keeping highest score
+        best: dict[str, CandidateKhoan] = {}
+        for c in out:
+            if not c.khoan_id or not c.noi_dung:
+                continue
+            prev = best.get(c.khoan_id)
+            if prev is None or float(c.score or 0) >= float(prev.score or 0):
+                best[c.khoan_id] = c
+        return list(best.values())
 
     async def retrieve_candidates(
         self, question: str, audience: str = "citizen", as_of: str | None = None
@@ -675,9 +760,11 @@ class QAService:
         candidates: list[CandidateKhoan] = await self._direct_lookup(question, audience, as_of)
         if candidates:
             return [c for c in candidates if c.khoan_id and c.noi_dung]
-        # Explicit reference but nothing digitized for it → return empty (honest "no data") instead
-        # of vector-similarity garbage from unrelated documents.
-        if self._KHOAN_ID_RE.search(question) or self._SO_HIEU_RE.search(question):
+        # Exact khoản-id miss with no số hiệu → honest empty (avoid semantic garbage).
+        # Số hiệu miss still falls through to graph/vector — flexible match may have failed on
+        # encoding variants, and keyword CONTAINS on so_hieu can still recover the document.
+        so_hieus = self._extract_so_hieus(question)
+        if self._KHOAN_ID_RE.search(question) and not so_hieus:
             return []
         seen_ids: set[str] = set()
 
@@ -705,14 +792,23 @@ class QAService:
                 pass
 
         # Qdrant is primary. Neo4j CONTAINS scan is expensive — only when vector retrieval returns
-        # zero usable hits (broken embeddings / empty index). Temporal validation still uses Neo4j.
+        # zero usable hits (broken embeddings / empty index), OR when user named a số hiệu
+        # (document lookup must not depend on embeddings).
         usable_vector_candidates = [
             c for c in candidates if c.khoan_id and c.noi_dung and self._retrieval_text_ok(c.noi_dung)
         ]
-        needs_graph_fallback = len(usable_vector_candidates) == 0
+        needs_graph_fallback = len(usable_vector_candidates) == 0 or bool(so_hieus)
 
         if needs_graph_fallback and self.driver and hasattr(self.driver, "session"):
             try:
+                keywords = self._keyword_queries(question)
+                for sh in so_hieus:
+                    if sh not in keywords:
+                        keywords.insert(0, sh)
+                    suffix = sh.split("/")[-1]
+                    if suffix and suffix not in keywords:
+                        keywords.insert(0, suffix)
+                required_keywords = so_hieus if so_hieus else self._required_keyword_queries(question)
                 # Broad graph keyword search: look across provision text, article titles and document
                 # metadata. This lets vague questions find provisions like "Điều 3. Mức hỗ trợ phục vụ"
                 # without requiring the user to type the exact decree/decision number.
@@ -735,6 +831,7 @@ class QAService:
                                         OR toLower(coalesce(d.tieu_de, '')) CONTAINS toLower(req)
                                         OR toLower(coalesce(v.ten, '')) CONTAINS toLower(req)
                                         OR toLower(coalesce(v.so_hieu, '')) CONTAINS toLower(req)
+                                        OR toUpper(replace(coalesce(v.so_hieu,''), 'Đ', 'D')) STARTS WITH split(toUpper(req),'/')[0] + '/'
                                     ))
                 WITH k, d, v,
                      size([kw IN $keywords WHERE toLower(coalesce(k.noi_dung, '')) CONTAINS toLower(kw)
@@ -745,21 +842,27 @@ class QAService:
                        OR toLower(coalesce(d.tieu_de, '')) CONTAINS toLower(req)
                        OR toLower(coalesce(v.ten, '')) CONTAINS toLower(req)
                        OR toLower(coalesce(v.so_hieu, '')) CONTAINS toLower(req)])) AS hits
-                RETURN k.khoan_id AS kid, k.noi_dung AS nd, hits
+                RETURN k.khoan_id AS kid, k.noi_dung AS nd, v.so_hieu AS so, hits
                 ORDER BY hits DESC
-                LIMIT 12
+                LIMIT 40
                 """
                 async with self.driver.session() as session:
                     res = await session.run(
                         query,
-                        keywords=self._keyword_queries(question),
-                        required_keywords=self._required_keyword_queries(question),
+                        keywords=keywords,
+                        required_keywords=required_keywords,
                         audience=audience,
                         as_of=as_of,
                     )
                     async for record in res:
                         kid = str(record["kid"] or "")
                         text = str(record["nd"] or "")
+                        so = str(record.get("so") or "")
+                        if so_hieus and so and not any(self._so_hieu_matches(so, sh) for sh in so_hieus):
+                            # Soft: allow CONTAINS on số hiệu fragment when exact flexible match fails
+                            so_norm = normalize_so_hieu(so)
+                            if not any(sh.split("/")[0] in so_norm and sh.split("/")[-1] in so_norm for sh in so_hieus):
+                                continue
                         if not kid or kid in seen_ids or not self._retrieval_text_ok(text):
                             continue
                         seen_ids.add(kid)
@@ -772,6 +875,17 @@ class QAService:
                 pass
 
         cleaned = [c for c in candidates if c.khoan_id and c.noi_dung and self._retrieval_text_ok(c.noi_dung)]
+        if so_hieus:
+            matched = [
+                c
+                for c in cleaned
+                if any(
+                    self._so_hieu_matches((c.khoan_id or "").split("::", 1)[0], sh)
+                    for sh in so_hieus
+                )
+            ]
+            if matched:
+                cleaned = matched
         preferred = self._prefer_best_document(cleaned, question)
         return self._filter_relevant_candidates(preferred, question)
 
@@ -1111,6 +1225,18 @@ class QAService:
                 "**Giới hạn:** Tra Cổng Dịch vụ công quốc gia hoặc cơ quan nhà nước có thẩm quyền."
             )
 
+        so_named = cls._extract_so_hieus(q)
+        if so_named:
+            label = ", ".join(so_named)
+            return (
+                f"**Kết luận:** Bạn hỏi về văn bản **{label}**, nhưng hệ thống chưa truy hồi được "
+                "điều/khoản đã số hóa khớp số hiệu này tại thời điểm hỏi "
+                "(có thể khác cách ghi số hiệu, chưa hiệu lực theo ngày áp dụng, hoặc chưa được nạp).\n\n"
+                "**Phân tích:** Hãy thử lại với số hiệu đầy đủ (ví dụ có năm: `41/2021/NQ-CP`), "
+                "hoặc kiểm tra văn bản đã được import vào Neo4j.\n\n"
+                f"**Giới hạn:** Chưa gắn căn cứ Điều/Khoản cho {label}."
+            )
+
         return (
             f"**Kết luận:** Chưa truy hồi được điều khoản pháp lý đã số hóa phù hợp để trả lời “{q}” "
             "kèm căn cứ Điều/Khoản.\n\n"
@@ -1146,6 +1272,52 @@ class QAService:
             "degraded": True,
             "unverified": True,
             "refuse_reason": refuse,
+        }
+
+    def _grounded_doc_answer(
+        self,
+        *,
+        question: str,
+        candidates: list[CandidateKhoan],
+        audience: str,
+        as_of: str,
+        notices: list[dict[str, Any]],
+        reason: str,
+    ) -> dict[str, Any]:
+        """Synthesize a document overview from retrieved clauses when the LLM is unavailable."""
+        so = self._extract_so_hieus(question)
+        doc_label = so[0] if so else self._doc_key(candidates[0].khoan_id if candidates else "")
+        bullets: list[str] = []
+        cites: list[dict[str, Any]] = []
+        for c in candidates[:10]:
+            if not c.noi_dung:
+                continue
+            meta = re.search(r"::D(\d+)(?:\.K(\d+))?", c.khoan_id or "", re.IGNORECASE)
+            dieu = f"Điều {meta.group(1)}" if meta else ""
+            khoan = f"Khoản {meta.group(2)}" if meta and meta.group(2) else ""
+            ref = " · ".join(p for p in [doc_label, dieu, khoan] if p)
+            clip = self._clip_ctx(c.noi_dung, 220)
+            bullets.append(f"- **{ref}:** {clip}")
+            cites.append({"khoan_id": c.khoan_id, "quote": self._clip_ctx(c.noi_dung, 120)})
+        answer = (
+            f"**Kết luận:** Đã tìm thấy văn bản **{doc_label}** trong kho số hóa. "
+            f"Dưới đây là các điều/khoản chính có trong hệ thống (tóm lược từ ngữ cảnh đã truy hồi).\n\n"
+            f"**Phân tích:**\n" + "\n".join(bullets) + "\n\n"
+            "**Giới hạn:** Đây là tóm lược từ các khoản đã số hóa; có thể chưa đủ toàn bộ văn bản. "
+            "Đối chiếu bản chính thức khi cần chi tiết đầy đủ."
+        )
+        return {
+            "answer": answer,
+            "citations": self._compact_citations(cites),
+            "confidence": "medium",
+            "graph_paths": [],
+            "graph_paths_status": "not_requested",
+            "graph_paths_reason": "Grounded doc summary without LLM",
+            "audience": audience,
+            "as_of": as_of,
+            "notices": notices,
+            "degraded": True,
+            "refuse_reason": [reason],
         }
 
     async def _unverified_ai_answer(
@@ -1278,21 +1450,36 @@ class QAService:
                 reason="Retrieved context does not cover the question topic.",
             )
 
-        # 3 clauses × ~400 chars keeps prompt small while giving enough legal detail.
-        context_limit = 3 if audience == "citizen" else 4
+        # More context for document-number / overview questions (e.g. "41/NQ-CP gồm những gì").
+        doc_q = bool(self._extract_so_hieus(question) or self._KHOAN_ID_RE.search(question))
+        overview_q = self._is_doc_overview_question(question)
+        if doc_q or overview_q:
+            context_limit = 12 if audience == "citizen" else 16
+        else:
+            context_limit = 3 if audience == "citizen" else 4
         candidates = candidates[:context_limit]
         retrieved_context = "\n".join(
-            f"[{c.khoan_id}] {self._clip_ctx(c.noi_dung)}" for c in candidates
+            f"[{c.khoan_id}] {self._clip_ctx(c.noi_dung, 320 if overview_q or doc_q else 400)}"
+            for c in candidates
         )
+        overview_hint = ""
+        if overview_q or doc_q:
+            overview_hint = (
+                "Đây là câu hỏi về nội dung/tổng quan văn bản đã nêu số hiệu. "
+                "Hãy tóm tắt các điểm chính theo Điều/Khoản có trong ngữ cảnh; "
+                "liệt kê có cấu trúc; citations tối đa 5 phần tử từ ngữ cảnh.\n"
+            )
         prompt = (
             "retrieved_context:\n"
             f"{retrieved_context}\n\n"
             f"Câu hỏi: {question}\n"
-            "Trả lời ~180–220 từ, pháp luật Việt Nam, bố cục: Kết luận / Phân tích / Căn cứ / Giới hạn.\n"
+            f"{overview_hint}"
+            "Trả lời ~180–280 từ, pháp luật Việt Nam, bố cục: Kết luận / Phân tích / Căn cứ / Giới hạn.\n"
             "- Chỉ gắn số hiệu/Điều/Khoản đúng chủ đề từ ngữ cảnh; không chép nguyên văn dài.\n"
             "- Lệch chủ đề → citations=[]; trả lời nguyên tắc VN.\n"
             "- Cờ bạc: ưu tiên hình sự/hành chính trước thuế.\n"
-            "JSON: answer, citations (tối đa 2 phần tử {khoan_id, quote ngắn} hoặc []), confidence."
+            "JSON: answer, citations (tối đa 5 nếu hỏi theo số hiệu, còn lại tối đa 2; "
+            "{khoan_id, quote ngắn} hoặc []), confidence."
         )
         try:
             llm_out = await self.router.complete(
@@ -1303,6 +1490,15 @@ class QAService:
                 complexity="medium",
             )
         except Exception as e:
+            if candidates and (doc_q or overview_q):
+                return self._grounded_doc_answer(
+                    question=question,
+                    candidates=candidates,
+                    audience=audience,
+                    as_of=as_of_val,
+                    notices=notices,
+                    reason=f"LLMRouter error: {str(e)}",
+                )
             return await self._unverified_ai_answer(
                 question=question,
                 audience=audience,
@@ -1313,6 +1509,15 @@ class QAService:
 
         # LLM router returns a needs_review envelope when output fails schema repair
         if llm_out.get("needs_review") or llm_out.get("status") == "needs_review":
+            if candidates and (doc_q or overview_q):
+                return self._grounded_doc_answer(
+                    question=question,
+                    candidates=candidates,
+                    audience=audience,
+                    as_of=as_of_val,
+                    notices=notices,
+                    reason="LLM output failed schema validation (needs_review).",
+                )
             return {
                 "answer": "Chưa thể tạo câu trả lời đạt chuẩn trích dẫn. Vui lòng thử lại hoặc thu hẹp câu hỏi.",
                 "citations": [],
@@ -1326,6 +1531,16 @@ class QAService:
 
         raw_answer = str(llm_out.get("answer", "") or "")
         raw_citations = llm_out.get("citations", [])
+
+        if not raw_answer.strip() and candidates and (doc_q or overview_q):
+            return self._grounded_doc_answer(
+                question=question,
+                candidates=candidates,
+                audience=audience,
+                as_of=as_of_val,
+                notices=notices,
+                reason="LLM returned empty answer; used grounded doc summary.",
+            )
 
         # 3. Only wipe citations when the model says context is off-topic AND cites nothing.
         # Partial notes like "chưa đủ toàn bộ nội dung, chỉ có Điều 4" must keep citations
@@ -1363,12 +1578,32 @@ class QAService:
                     seeded, preloaded_sources=candidates
                 )
 
-        doc_q = bool(self._SO_HIEU_RE.search(question) or self._KHOAN_ID_RE.search(question))
+        doc_q = bool(self._extract_so_hieus(question) or self._KHOAN_ID_RE.search(question))
         validated_citations = self._narrow_citations(
-            raw_answer, validated_citations or [], question, max_n=3 if doc_q else 2
+            raw_answer, validated_citations or [], question, max_n=5 if doc_q else 2
         )
 
-        # 5. Fail-Closed: hallucinated citations → refuse; no citations → keep short LLM answer.
+        # For document lookup, seed citations from retrieved clauses when the model forgot them
+        # (empty citations). Do NOT seed after hallucinated quotes failed validation — fail-closed.
+        if (
+            not validated_citations
+            and doc_q
+            and candidates
+            and raw_answer.strip()
+            and not raw_citations
+        ):
+            seeded = [
+                {"khoan_id": c.khoan_id, "quote": self._clip_ctx(c.noi_dung, 120)}
+                for c in candidates[:5]
+                if c.khoan_id
+            ]
+            if seeded:
+                is_valid, validated_citations, errors = await self.validator.validate_quotes(
+                    seeded, preloaded_sources=candidates
+                )
+                validated_citations = self._narrow_citations(
+                    raw_answer, validated_citations or [], question, max_n=5
+                )
         if not is_valid or not validated_citations:
             if raw_citations:
                 return {

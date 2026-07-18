@@ -431,7 +431,10 @@ def _topic_relevance(question: str, text: str) -> float:
     return hits / max(len(tokens), 1)
 
 
-_SO_HIEU_RE = re.compile(r"\d{1,4}/\d{4}/[A-Za-zĐĐđ\-]+")
+_SO_HIEU_RE = re.compile(
+    r"\b\d{1,4}/(?:\d{4}/)?[A-Za-zĐđ][A-Za-zĐđ0-9.\-]*",
+    re.IGNORECASE,
+)
 _KHOAN_ID_RE = re.compile(r"\d{1,4}/\d{4}/[A-Za-zĐĐđ\-]+::D\d+(?:\.K\d+)?", re.IGNORECASE)
 
 _NON_LEGAL_META_RE = re.compile(
