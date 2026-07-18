@@ -132,7 +132,7 @@ async def reindex_khoan_from_neo4j(
                 last_error = f"embed: {exc} | {details}"
             logger.warning("reindex: embedding batch failed: %s", last_error)
             msg = str(exc).lower()
-            # Hard-stop on billing / auth — retrying 130k rows is pointless.
+            # Hard-stop on billing / auth / dim mismatch — retrying 130k rows is pointless.
             if any(
                 k in msg
                 for k in (
@@ -143,6 +143,7 @@ async def reindex_khoan_from_neo4j(
                     "no credentials",
                     "invalid api key",
                     "insufficient",
+                    "dimension mismatch",
                 )
             ):
                 return {
@@ -151,7 +152,7 @@ async def reindex_khoan_from_neo4j(
                     "total": total,
                     "indexed": indexed,
                     "message": (
-                        f"Dừng reindex sớm vì lỗi embedding (thường hết credit / sai model): {exc}. "
+                        f"Dừng reindex sớm vì lỗi embedding/Qdrant: {exc}. "
                         f"Đã index {indexed}/{total}."
                     ),
                 }
@@ -180,6 +181,18 @@ async def reindex_khoan_from_neo4j(
         except Exception as exc:  # noqa: BLE001
             last_error = f"qdrant: {exc}"
             logger.warning("reindex: qdrant upsert failed: %s", exc)
+            if "dimension mismatch" in str(exc).lower():
+                return {
+                    "status": "error",
+                    "van_ban_id": van_ban_id,
+                    "total": total,
+                    "indexed": indexed,
+                    "message": (
+                        f"Dừng sớm — Qdrant dim không khớp embedding: {exc}. "
+                        f"Chạy lại với --recreate-khoan và BE2_EMBEDDING_DIMENSION đúng. "
+                        f"Đã index {indexed}/{total}."
+                    ),
+                }
 
     msg = f"Đã reindex {indexed}/{total} Khoản từ Neo4j vào Qdrant."
     if indexed < total and last_error:
