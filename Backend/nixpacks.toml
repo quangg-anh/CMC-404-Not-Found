@@ -1,6 +1,4 @@
-# Railway / Nixpacks — Root Directory = `Backend`
-# Prefer Dockerfile when available. This file is fallback if builder=NIXPACKS.
-
+# Railway / Nixpacks fallback — Root Directory = Backend
 [phases.setup]
 nixPkgs = ["python312", "gcc", "postgresql"]
 
@@ -8,4 +6,4 @@ nixPkgs = ["python312", "gcc", "postgresql"]
 cmds = ["pip install -r requirements.txt"]
 
 [start]
-cmd = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"
+cmd = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"

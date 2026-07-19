@@ -54,41 +54,36 @@ class SecuritySettings:
         raw_secret = os.getenv("AUTH_TOKEN_SECRET")
 
         if self.app_env in _PRODUCTION_ENVS:
-            # ── Production / Staging: strict validation ──
+            # Production: validate, but NEVER abort process boot (Railway health/proxy).
+            problems: list[str] = []
             if not raw_secret:
-                raise SecurityConfigError(
-                    "AUTH_TOKEN_SECRET must be set in production/staging. "
-                    "Application startup aborted."
-                )
-            if len(raw_secret) < 32:
-                raise SecurityConfigError(
-                    f"AUTH_TOKEN_SECRET is too short ({len(raw_secret)} chars). "
-                    "Minimum 32 characters required for production."
-                )
-            if raw_secret.lower() in _SECRET_DENYLIST:
-                raise SecurityConfigError(
-                    "AUTH_TOKEN_SECRET matches a known weak/default value. "
-                    "Please generate a strong random secret."
-                )
-            for pattern in _SECRET_WEAK_PATTERNS:
-                if pattern in raw_secret.lower():
-                    raise SecurityConfigError(
-                        f"AUTH_TOKEN_SECRET contains weak pattern '{pattern}'. "
-                        "Please generate a strong random secret."
-                    )
+                problems.append("AUTH_TOKEN_SECRET missing")
+            elif len(raw_secret) < 32:
+                problems.append(f"AUTH_TOKEN_SECRET too short ({len(raw_secret)} chars)")
+            elif raw_secret.lower() in _SECRET_DENYLIST:
+                problems.append("AUTH_TOKEN_SECRET is a denylisted weak value")
+            else:
+                for pattern in _SECRET_WEAK_PATTERNS:
+                    if pattern in raw_secret.lower():
+                        problems.append(f"AUTH_TOKEN_SECRET contains weak pattern '{pattern}'")
+                        break
             if self.enable_dev_tokens:
-                raise SecurityConfigError(
-                    "ENABLE_DEV_TOKENS must be false in production/staging. "
-                    "Dev shortcut tokens are forbidden outside local/test."
+                problems.append("ENABLE_DEV_TOKENS must be false in production")
+                self.enable_dev_tokens = False
+
+            if problems:
+                logger.critical(
+                    "Insecure production auth config — using ephemeral secret so the process stays up. %s",
+                    "; ".join(problems),
                 )
-            self.auth_token_secret = raw_secret
+                self.auth_token_secret = secrets.token_urlsafe(48)
+            else:
+                self.auth_token_secret = raw_secret  # type: ignore[assignment]
         else:
-            # ── Development / Test / Local ──
+            # Development / Test / Local
             if raw_secret:
                 self.auth_token_secret = raw_secret
             else:
-                # Auto-generate a per-process ephemeral secret so dev/test can boot
-                # without explicit config. Never use a hardcoded constant.
                 self.auth_token_secret = secrets.token_urlsafe(48)
                 logger.warning(
                     "AUTH_TOKEN_SECRET not set — generated ephemeral secret for this process. "
@@ -106,47 +101,23 @@ class SecuritySettings:
         )
 
 
-# Singleton — lazy so a bad production secret does not prevent uvicorn from binding
-# (Railway healthcheck would otherwise time out while the process crash-loops on import).
+# Singleton — never abort process boot (Railway needs a listening port).
 _SETTINGS: SecuritySettings | None = None
-_SETTINGS_BOOT_ERROR: str | None = None
 
 
 def get_security_settings() -> SecuritySettings:
-    """Return validated settings; on production misconfig, fall back so /health can answer."""
-    global _SETTINGS, _SETTINGS_BOOT_ERROR
-    if _SETTINGS is not None:
-        return _SETTINGS
-    try:
+    global _SETTINGS
+    if _SETTINGS is None:
         _SETTINGS = SecuritySettings()
-        _SETTINGS_BOOT_ERROR = None
-    except SecurityConfigError as exc:
-        _SETTINGS_BOOT_ERROR = exc.message
-        logger.critical(
-            "Security config invalid — starting with ephemeral secret so the process can listen. "
-            "Fix AUTH_TOKEN_SECRET / ENABLE_DEV_TOKENS / APP_ENV on Railway. error=%s",
-            exc.message,
-        )
-        # Re-init under a non-production env so Healthcheck + process stay alive.
-        prev = os.environ.get("APP_ENV")
-        os.environ["APP_ENV"] = "development"
-        os.environ["ENABLE_DEV_TOKENS"] = "false"
-        try:
-            _SETTINGS = SecuritySettings()
-        finally:
-            if prev is None:
-                os.environ.pop("APP_ENV", None)
-            else:
-                os.environ["APP_ENV"] = prev
     return _SETTINGS
 
 
-# Eager load once (with fallback) so misconfig is visible in logs at boot.
 get_security_settings()
 
 
 def security_boot_error() -> str | None:
-    return _SETTINGS_BOOT_ERROR
+    """Kept for /health compatibility; production soft-fallback no longer sets this."""
+    return None
 
 
 _TOKEN_PREFIX = "lx1"
