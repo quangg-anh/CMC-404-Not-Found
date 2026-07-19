@@ -16,7 +16,7 @@ import { ErrorBanner, PageHeader, StatCard } from '../../components/AdminChrome'
 
 interface DashboardSummary {
   alerts: { high_severity_active: number; total_monitored: number };
-  pipeline_jobs: { running: number; failed: number; needs_review: number; health_status: string };
+  pipeline_jobs: { running: number; queued?: number; failed: number; needs_review: number; health_status: string };
   knowledge_graph: {
     legal_documents_count: number;
     social_posts_monitored: number;
@@ -96,7 +96,7 @@ export default function DashboardPage() {
           value={fmt(summary?.pipeline_jobs.running)}
           hint={
             summary?.pipeline_jobs.health_status === 'healthy'
-              ? `${fmt(summary?.pipeline_jobs.needs_review)} cần review`
+              ? `${fmt(summary?.pipeline_jobs.queued)} trong hàng đợi`
               : `${fmt(summary?.pipeline_jobs.failed)} thất bại`
           }
           icon={HardDrives}

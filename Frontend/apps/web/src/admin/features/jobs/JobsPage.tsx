@@ -11,7 +11,7 @@ interface JobItem {
   created_at: string | null;
   needs_review?: boolean;
 }
-interface JobsSummary { total_running: number; total_failed: number; total_needs_review: number; health: string }
+interface JobsSummary { total_running: number; total_queued?: number; total_failed: number; total_needs_review: number; health: string }
 interface JobsResponse { items: JobItem[]; total: number; summary: JobsSummary }
 
 function getStatusConfig(status: string) {
@@ -94,10 +94,14 @@ export default function JobsPage() {
       </div>
 
       {summary && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div className="bg-surface border border-border rounded-xl p-4">
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Đang chạy</div>
             <div className="text-2xl font-black text-blue-600 mt-1">{summary.total_running}</div>
+          </div>
+          <div className="bg-surface border border-border rounded-xl p-4">
+            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Hàng đợi</div>
+            <div className="text-2xl font-black text-slate-600 mt-1">{summary.total_queued ?? 0}</div>
           </div>
           <div className="bg-surface border border-border rounded-xl p-4">
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Cần duyệt</div>

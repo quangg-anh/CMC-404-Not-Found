@@ -17,6 +17,7 @@ class DashboardService:
         high_alerts = 0
         total_alerts = 0
         active_jobs = 0
+        queued_jobs = 0
         failed_jobs = 0
         needs_review = 0
         pending_briefs = 0
@@ -49,10 +50,19 @@ class DashboardService:
                         or 0
                     )
 
-                    jrows = await conn.fetch("SELECT status FROM jobs")
-                    active_jobs = sum(1 for x in jrows if x["status"] in {"running", "queued"})
-                    failed_jobs = sum(1 for x in jrows if x["status"] == "failed")
-                    needs_review = sum(1 for x in jrows if x["status"] == "needs_review")
+                    # "Jobs đang chạy" = only status=running. Queued is waiting, not running.
+                    # Schema enum uses 'error' (not 'failed').
+                    jrows = await conn.fetch("SELECT status::text AS status FROM jobs")
+                    for row in jrows:
+                        st = str(row["status"] or "").lower()
+                        if st == "running":
+                            active_jobs += 1
+                        elif st == "queued":
+                            queued_jobs += 1
+                        elif st in {"error", "failed"}:
+                            failed_jobs += 1
+                        elif st == "needs_review":
+                            needs_review += 1
 
                     pending_briefs = int(
                         await conn.fetchval(
@@ -102,6 +112,7 @@ class DashboardService:
             },
             "pipeline_jobs": {
                 "running": active_jobs,
+                "queued": queued_jobs,
                 "failed": failed_jobs,
                 "needs_review": needs_review,
                 "health_status": "healthy" if failed_jobs == 0 else "degraded",

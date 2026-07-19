@@ -91,14 +91,15 @@ class _FakeDriver:
 async def test_dashboard_summary_uses_real_counts_not_hardcoded_defaults():
     conn = _FakeConn(
         counts={"high_alerts": 1, "total_alerts": 4, "briefs": 3, "suggestions": 2},
-        job_statuses=["running", "queued", "failed", "needs_review", "success"],
+        job_statuses=["running", "queued", "queued", "error", "needs_review", "success"],
     )
     service = DashboardService(pool=_FakePool(conn), neo4j_driver=_FakeDriver({"vb": 12, "posts": 88, "topics": 7}))
     summary = await service.get_summary()
 
     assert summary["alerts"]["high_severity_active"] == 1
     assert summary["alerts"]["total_monitored"] == 4
-    assert summary["pipeline_jobs"]["running"] == 2
+    assert summary["pipeline_jobs"]["running"] == 1
+    assert summary["pipeline_jobs"]["queued"] == 2
     assert summary["pipeline_jobs"]["failed"] == 1
     assert summary["pipeline_jobs"]["needs_review"] == 1
     assert summary["pipeline_jobs"]["health_status"] == "degraded"

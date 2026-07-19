@@ -40,11 +40,30 @@ async def list_jobs(
 ) -> dict[str, Any]:
     """Return real jobs from Postgres only — empty list after purge is correct."""
     items: list[dict[str, Any]] = []
-    running = failed = needs_review = 0
+    running = queued = failed = needs_review = 0
 
     if pool and hasattr(pool, "acquire"):
         try:
             async with pool.acquire() as conn:
+                # Full-table summary (not limited to the page of items).
+                for row in await conn.fetch(
+                    """
+                    SELECT status::text AS status, COUNT(*)::int AS cnt
+                    FROM jobs
+                    GROUP BY status
+                    """
+                ):
+                    st = str(row["status"] or "").lower()
+                    cnt = int(row["cnt"] or 0)
+                    if st == "running":
+                        running = cnt
+                    elif st == "queued":
+                        queued = cnt
+                    elif st in {"error", "failed"}:
+                        failed += cnt
+                    elif st == "needs_review":
+                        needs_review = cnt
+
                 clauses: list[str] = []
                 args: list[Any] = []
                 if type:
@@ -67,12 +86,6 @@ async def list_jobs(
                 )
                 for r in rows:
                     st = str(r["status"] or "")
-                    if st in {"running", "queued"}:
-                        running += 1
-                    elif st == "failed":
-                        failed += 1
-                    elif st == "needs_review":
-                        needs_review += 1
                     items.append(
                         {
                             "job_id": str(r["id"]),
@@ -94,6 +107,7 @@ async def list_jobs(
             "total": len(items),
             "summary": {
                 "total_running": running,
+                "total_queued": queued,
                 "total_failed": failed,
                 "total_needs_review": needs_review,
                 "health": "healthy" if failed == 0 else "degraded",
