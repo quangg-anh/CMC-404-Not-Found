@@ -114,8 +114,8 @@ export function CitizenHeader() {
 
 export function CitizenFooter() {
   return (
-    <footer className="ls-footer-wash mt-auto border-t border-border pb-20 sm:pb-16">
-      <div className="ls-container flex flex-col gap-3 py-8 sm:flex-row sm:items-center sm:justify-between">
+    <footer className="ls-footer-wash mt-auto border-t border-border">
+      <div className="ls-container flex flex-col gap-3 py-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-gradient-to-br from-primary to-[#3B6FE8] text-white shadow-sm">
             <Scales size={18} weight="fill" aria-hidden />
