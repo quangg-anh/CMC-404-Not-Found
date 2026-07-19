@@ -199,7 +199,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @app.get("/health", summary="Health check endpoint")
 async def health_check() -> dict[str, Any]:
-    return {"status": "ok", "service": "be3-gateway", "version": "1.0.0"}
+    from app.core.security import security_boot_error
+
+    boot_err = security_boot_error()
+    return {
+        "status": "ok",
+        "service": "be3-gateway",
+        "version": "1.0.0",
+        "security_ok": boot_err is None,
+        "security_warning": boot_err,
+    }
 
 
 # Register Phase A Routers

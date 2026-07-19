@@ -106,8 +106,48 @@ class SecuritySettings:
         )
 
 
-# Singleton — validated once at import time.  Tests override via monkeypatch.
-_SETTINGS = SecuritySettings()
+# Singleton — lazy so a bad production secret does not prevent uvicorn from binding
+# (Railway healthcheck would otherwise time out while the process crash-loops on import).
+_SETTINGS: SecuritySettings | None = None
+_SETTINGS_BOOT_ERROR: str | None = None
+
+
+def get_security_settings() -> SecuritySettings:
+    """Return validated settings; on production misconfig, fall back so /health can answer."""
+    global _SETTINGS, _SETTINGS_BOOT_ERROR
+    if _SETTINGS is not None:
+        return _SETTINGS
+    try:
+        _SETTINGS = SecuritySettings()
+        _SETTINGS_BOOT_ERROR = None
+    except SecurityConfigError as exc:
+        _SETTINGS_BOOT_ERROR = exc.message
+        logger.critical(
+            "Security config invalid — starting with ephemeral secret so the process can listen. "
+            "Fix AUTH_TOKEN_SECRET / ENABLE_DEV_TOKENS / APP_ENV on Railway. error=%s",
+            exc.message,
+        )
+        # Re-init under a non-production env so Healthcheck + process stay alive.
+        prev = os.environ.get("APP_ENV")
+        os.environ["APP_ENV"] = "development"
+        os.environ["ENABLE_DEV_TOKENS"] = "false"
+        try:
+            _SETTINGS = SecuritySettings()
+        finally:
+            if prev is None:
+                os.environ.pop("APP_ENV", None)
+            else:
+                os.environ["APP_ENV"] = prev
+    return _SETTINGS
+
+
+# Eager load once (with fallback) so misconfig is visible in logs at boot.
+get_security_settings()
+
+
+def security_boot_error() -> str | None:
+    return _SETTINGS_BOOT_ERROR
+
 
 _TOKEN_PREFIX = "lx1"
 
@@ -122,9 +162,10 @@ def _b64url_decode(text: str) -> bytes:
 
 def issue_token(user_id: str, email: str | None, role: str, ttl_s: int | None = None) -> str:
     """Mint a signed session token encoding the user's id/email/role and an expiry."""
-    payload = {"uid": user_id, "eml": email, "rol": role, "exp": int(time.time()) + (ttl_s or _SETTINGS.token_ttl_s)}
+    settings = get_security_settings()
+    payload = {"uid": user_id, "eml": email, "rol": role, "exp": int(time.time()) + (ttl_s or settings.token_ttl_s)}
     payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-    sig = hmac.new(_SETTINGS.auth_token_secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+    sig = hmac.new(settings.auth_token_secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{_TOKEN_PREFIX}.{payload_b64}.{sig}"
 
 
@@ -134,7 +175,8 @@ def _verify_signed_token(token: str) -> "UserToken | None":
         prefix, payload_b64, sig = token.split(".")
         if prefix != _TOKEN_PREFIX:
             return None
-        expected = hmac.new(_SETTINGS.auth_token_secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
+        settings = get_security_settings()
+        expected = hmac.new(settings.auth_token_secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, sig):
             return None
         payload = json.loads(_b64url_decode(payload_b64))
@@ -194,13 +236,14 @@ _DEV_TOKEN_MAP: dict[str, UserToken] = {
 
 def _try_dev_token(token_str: str) -> UserToken | None:
     """Return a dev-shortcut UserToken if feature is enabled and the token matches exactly."""
-    if not _SETTINGS.enable_dev_tokens:
+    settings = get_security_settings()
+    if not settings.enable_dev_tokens:
         return None
     user = _DEV_TOKEN_MAP.get(token_str)
     if user is not None:
         logger.warning(
             "Dev shortcut token authenticated",
-            extra={"authentication_method": "dev_token", "role": user.roles[0], "app_env": _SETTINGS.app_env},
+            extra={"authentication_method": "dev_token", "role": user.roles[0], "app_env": settings.app_env},
         )
     return user
 
