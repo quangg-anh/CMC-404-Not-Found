@@ -1,4 +1,4 @@
-# Railway / Nixpacks fallback — Root Directory = Backend
+# Nixpacks fallback
 [phases.setup]
 nixPkgs = ["python312", "gcc", "postgresql"]
 
@@ -6,4 +6,4 @@ nixPkgs = ["python312", "gcc", "postgresql"]
 cmds = ["pip install -r requirements.txt"]
 
 [start]
-cmd = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+cmd = "python boot_be3.py"
