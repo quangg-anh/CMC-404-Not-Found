@@ -13,12 +13,11 @@ async def test_publish_gate_role_and_citation_guardrails():
         res_forbidden = await client.post("/admin/briefs/brief-102/publish", headers=headers_phap_che)
         assert res_forbidden.status_code == 403
 
-        # Case 2: Citation check - Brief without valid citations -> 422 Unprocessable Entity
+        # Case 2: Citations optional — brief without citations can still publish
         headers_truyen_thong = {"Authorization": "Bearer test-admin-truyen-thong"}
         res_no_cit = await client.post("/admin/briefs/brief-no-cit/publish", headers=headers_truyen_thong)
-        assert res_no_cit.status_code == 422
-        body_no_cit = res_no_cit.json()
-        assert "Từ chối xuất bản" in str(body_no_cit["data"])
+        assert res_no_cit.status_code == 200
+        assert res_no_cit.json()["data"]["status"] == "published"
 
         # Case 3: Valid brief with accurate quotes -> 200 OK, transitions to published with audit_id
         res_ok = await client.post("/admin/briefs/brief-102/publish", headers=headers_truyen_thong)

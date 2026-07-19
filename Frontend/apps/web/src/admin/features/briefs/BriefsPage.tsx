@@ -2,8 +2,9 @@
 import {
   Article, Plus, FloppyDisk, UploadSimple, CheckCircle, Clock, Archive,
   FileText, WarningCircle, Link as LinkIcon, PenNib, Spinner, ArrowClockwise,
+  Trash, MagnifyingGlass, X,
 } from '@phosphor-icons/react';
-import { apiGet, apiPatch, apiPost } from '../../../lib/api';
+import { apiDelete, apiGet, apiPatch, apiPost } from '../../../lib/api';
 
 interface Brief {
   id: string;
@@ -15,6 +16,20 @@ interface Brief {
 }
 interface ListResp { items: Brief[]; total: number }
 interface SyncNewsResp { created_count?: number; skipped?: number; items_count?: number }
+interface VanBanHit {
+  vb_id?: string;
+  so_hieu?: string;
+  ten?: string;
+  id?: string;
+}
+interface KhoanHit {
+  khoan_id?: string;
+  id?: string;
+  so_khoan?: string;
+  dieu?: string;
+  noi_dung?: string;
+  tieu_de?: string;
+}
 
 const MEDIA_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'article', label: 'Bài viết' },
@@ -32,7 +47,7 @@ function statusBadge(status: string) {
   }
 }
 function citationText(c: Record<string, any>): string {
-  return c.text ?? c.quote ?? [c.van_ban, c.dieu].filter(Boolean).join(' — ') ?? JSON.stringify(c);
+  return c.text ?? c.quote ?? [c.van_ban, c.dieu].filter(Boolean).join(' — ') || 'Căn cứ đã đính kèm';
 }
 function citationId(c: Record<string, any>, i: number): string {
   return c.id ?? c.khoan_id ?? `cit-${i}`;
@@ -47,13 +62,23 @@ export default function BriefsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editMedia, setEditMedia] = useState('article');
+  const [editCitations, setEditCitations] = useState<Array<Record<string, any>>>([]);
+  const [searchQ, setSearchQ] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [docHits, setDocHits] = useState<VanBanHit[]>([]);
+  const [khoanHits, setKhoanHits] = useState<KhoanHit[]>([]);
+  const [pickedDoc, setPickedDoc] = useState<string | null>(null);
 
   const select = (b: Brief) => {
     setActive(b);
     setEditTitle(b.tieu_de ?? '');
-    // Map stored enum back to a business label (best effort).
     const alias = b.media_type === 'image' ? 'infographic' : b.media_type === 'video' ? 'video_script' : 'article';
     setEditMedia(alias);
+    setEditCitations(Array.isArray(b.citations) ? [...b.citations] : []);
+    setSearchQ('');
+    setDocHits([]);
+    setKhoanHits([]);
+    setPickedDoc(null);
   };
 
   const load = (keepId?: string) => {
@@ -98,7 +123,11 @@ export default function BriefsPage() {
     if (!active) return;
     setSaving(true); setError(null); setNotice(null);
     try {
-      const updated = await apiPatch<Brief>(`/admin/briefs/${active.id}`, { tieu_de: editTitle, media_types: [editMedia] });
+      const updated = await apiPatch<Brief>(`/admin/briefs/${active.id}`, {
+        tieu_de: editTitle,
+        media_types: [editMedia],
+        citations: editCitations,
+      });
       setBriefs((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
       select(updated);
       setNotice('Đã lưu bản nháp.');
@@ -111,12 +140,18 @@ export default function BriefsPage() {
     if (!active) return;
     setSaving(true); setError(null); setNotice(null);
     try {
+      // Persist citations first so publish uses the latest editor state.
+      await apiPatch<Brief>(`/admin/briefs/${active.id}`, {
+        tieu_de: editTitle,
+        media_types: [editMedia],
+        citations: editCitations,
+      });
       const data = await apiPost<Brief>(`/admin/briefs/${active.id}/publish`, {});
       setBriefs((prev) => prev.map((b) => (b.id === data.id ? { ...b, ...data } : b)));
-      select({ ...active, ...data });
+      select({ ...active, ...data, citations: data.citations ?? editCitations });
       setNotice('Đã ban hành ra Cổng Người dân.');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PublishGate từ chối — kiểm tra trích dẫn pháp lý.');
+      setError(e instanceof Error ? e.message : 'Không ban hành được — kiểm tra quyền admin_truyen_thong / admin_ops.');
     } finally { setSaving(false); }
   };
 
@@ -131,6 +166,104 @@ export default function BriefsPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Lỗi lưu trữ');
     } finally { setSaving(false); }
+  };
+
+  const remove = async (id: string) => {
+    if (!window.confirm('Xóa bản tin này? Hành động không hoàn tác.')) return;
+    setSaving(true); setError(null); setNotice(null);
+    try {
+      await apiDelete(`/admin/briefs/${id}`);
+      setNotice('Đã xóa bản tin.');
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Lỗi xóa bản tin');
+    } finally { setSaving(false); }
+  };
+
+  const searchDocs = async () => {
+    const q = searchQ.trim();
+    if (!q) return;
+    setSearching(true); setError(null); setKhoanHits([]); setPickedDoc(null);
+    try {
+      // Prefer exact so_hieu / vb_id lookup; fall back to filtering the recent list.
+      try {
+        const detail = await apiGet<VanBanHit & { tree?: KhoanHit[] }>(
+          `/admin/legal/van-ban/${encodeURIComponent(q)}`,
+        );
+        setDocHits([{
+          vb_id: detail.vb_id ?? detail.id ?? q,
+          so_hieu: detail.so_hieu ?? q,
+          ten: detail.ten,
+        }]);
+        const tree = Array.isArray(detail.tree) ? detail.tree : [];
+        if (tree.length) {
+          setKhoanHits(tree.slice(0, 40));
+          setPickedDoc(detail.so_hieu ?? detail.vb_id ?? q);
+        }
+      } catch {
+        const list = await apiGet<{ items: VanBanHit[] } | VanBanHit[]>('/admin/legal/van-ban');
+        const items = Array.isArray(list) ? list : (list.items ?? []);
+        const ql = q.toLowerCase();
+        setDocHits(
+          items
+            .filter((d) =>
+              [d.so_hieu, d.ten, d.vb_id, d.id].some((x) => String(x ?? '').toLowerCase().includes(ql)),
+            )
+            .slice(0, 12),
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không tìm được văn bản');
+      setDocHits([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const loadKhoans = async (doc: VanBanHit) => {
+    const key = doc.so_hieu || doc.vb_id || doc.id;
+    if (!key) return;
+    setSearching(true); setError(null);
+    try {
+      const detail = await apiGet<{ tree?: KhoanHit[]; so_hieu?: string }>(
+        `/admin/legal/van-ban/${encodeURIComponent(key)}`,
+      );
+      setPickedDoc(detail.so_hieu ?? key);
+      setKhoanHits(Array.isArray(detail.tree) ? detail.tree.slice(0, 40) : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không tải được khoản');
+      setKhoanHits([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const addCitation = (k: KhoanHit) => {
+    const kid = k.khoan_id || k.id;
+    if (!kid) return;
+    if (editCitations.some((c) => (c.khoan_id ?? c.id) === kid)) return;
+    const quote = (k.noi_dung || k.tieu_de || '').slice(0, 280);
+    setEditCitations((prev) => [
+      ...prev,
+      {
+        khoan_id: kid,
+        van_ban: pickedDoc || undefined,
+        dieu: k.dieu || k.so_khoan || undefined,
+        quote,
+      },
+    ]);
+  };
+
+  const addManualCitation = () => {
+    const raw = searchQ.trim();
+    if (!raw) return;
+    if (editCitations.some((c) => (c.khoan_id ?? c.id) === raw)) return;
+    setEditCitations((prev) => [...prev, { khoan_id: raw, quote: '', van_ban: raw }]);
+    setNotice('Đã thêm căn cứ thủ công. Bấm Lưu để ghi lại.');
+  };
+
+  const removeCitation = (idx: number) => {
+    setEditCitations((prev) => prev.filter((_, i) => i !== idx));
   };
 
   return (
@@ -164,7 +297,6 @@ export default function BriefsPage() {
       )}
 
       <div className="flex-1 flex gap-6 overflow-hidden pb-4">
-        {/* List */}
         <div className="w-[340px] flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm shrink-0">
           <div className="p-4 border-b border-border bg-slate-50 flex items-center justify-between">
             <h2 className="font-bold text-slate-700 text-sm">Danh sách Bản tin</h2>
@@ -177,20 +309,36 @@ export default function BriefsPage() {
               <div className="p-6 text-center text-slate-400 text-sm">Chưa có bản tin nào.<br />Bấm “Tạo bản tin”.</div>
             ) : (
               briefs.map((b) => (
-                <button key={b.id} onClick={() => select(b)} className={`w-full text-left p-3 rounded-xl transition-all border ${active?.id === b.id ? 'bg-primary/5 border-primary/20 shadow-sm' : 'bg-transparent border-transparent hover:bg-slate-50'}`}>
+                <div
+                  key={b.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => select(b)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') select(b); }}
+                  className={`w-full text-left p-3 rounded-xl transition-all border cursor-pointer ${active?.id === b.id ? 'bg-primary/5 border-primary/20 shadow-sm' : 'bg-transparent border-transparent hover:bg-slate-50'}`}
+                >
                   <div className="flex items-start justify-between mb-1 gap-2">
                     <span className="text-xs font-mono text-slate-400 truncate">{b.id.slice(0, 8)}</span>
-                    {statusBadge(b.status)}
+                    <div className="flex items-center gap-1">
+                      {statusBadge(b.status)}
+                      <button
+                        type="button"
+                        title="Xóa bản tin"
+                        onClick={(e) => { e.stopPropagation(); void remove(b.id); }}
+                        className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash size={14} weight="bold" />
+                      </button>
+                    </div>
                   </div>
                   <h3 className={`text-sm font-bold line-clamp-2 leading-snug ${active?.id === b.id ? 'text-primary' : 'text-slate-700'}`}>{b.tieu_de}</h3>
                   {b.created_at && <p className="text-xs text-slate-500 mt-1 flex items-center gap-1"><Clock size={12} /> {new Date(b.created_at).toLocaleDateString('vi-VN')}</p>}
-                </button>
+                </div>
               ))
             )}
           </div>
         </div>
 
-        {/* Editor */}
         <div className="flex-1 flex flex-col bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
           {active ? (
             <>
@@ -205,6 +353,13 @@ export default function BriefsPage() {
                   </button>
                   <button onClick={archive} disabled={saving || active.status === 'archived'} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-slate-100 border border-slate-200 text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-40">
                     <Archive size={16} /> Lưu trữ
+                  </button>
+                  <button
+                    onClick={() => void remove(active.id)}
+                    disabled={saving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
+                  >
+                    <Trash size={16} /> Xóa
                   </button>
                   {active.status !== 'published' && (
                     <button onClick={publish} disabled={saving} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-bold bg-primary text-white hover:bg-primary-dark transition-colors shadow-sm disabled:opacity-50">
@@ -229,22 +384,87 @@ export default function BriefsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1.5"><LinkIcon size={16} /> Căn cứ pháp lý đính kèm</label>
-                  {(!active.citations || active.citations.length === 0) ? (
-                    <div className="p-4 border border-dashed border-slate-300 rounded-xl text-center text-sm text-slate-500">
-                      Chưa có căn cứ pháp lý. Bản tin cần trích dẫn hợp lệ mới ban hành được (PublishGate).
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <LinkIcon size={16} /> Căn cứ pháp lý đính kèm
+                    <span className="normal-case font-medium text-slate-400">(tuỳ chọn — vẫn ban hành được nếu trống)</span>
+                  </label>
+
+                  {editCitations.length === 0 ? (
+                    <div className="mb-3 p-3 rounded-xl bg-slate-50 border border-dashed border-slate-300 text-sm text-slate-500">
+                      Chưa có căn cứ. Bạn có thể tìm số hiệu bên dưới hoặc ban hành luôn.
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {active.citations.map((c, i) => (
+                    <div className="space-y-2 mb-3">
+                      {editCitations.map((c, i) => (
                         <div key={citationId(c, i)} className="flex items-center gap-3 p-3 bg-blue-50/50 border border-blue-100 rounded-xl">
                           <FileText size={20} className="text-blue-500 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <h4 className="text-sm font-bold text-blue-900 truncate">{citationText(c)}</h4>
                             {(c.khoan_id ?? c.id) && <p className="text-xs text-blue-600 font-mono mt-0.5 truncate">ID: {c.khoan_id ?? c.id}</p>}
                           </div>
+                          <button type="button" onClick={() => removeCitation(i)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50" title="Bỏ căn cứ">
+                            <X size={16} weight="bold" />
+                          </button>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={searchQ}
+                        onChange={(e) => setSearchQ(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void searchDocs(); }}
+                        className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                        placeholder="Tìm số hiệu, VD: 15/2020/ND-CP hoặc 15/2020/ND-CP::D1.K1"
+                      />
+                    </div>
+                    <button type="button" onClick={() => void searchDocs()} disabled={searching || !searchQ.trim()} className="px-3 py-2.5 rounded-xl text-sm font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                      {searching ? <Spinner size={16} className="animate-spin" /> : 'Tìm'}
+                    </button>
+                    <button type="button" onClick={addManualCitation} disabled={!searchQ.trim()} className="px-3 py-2.5 rounded-xl text-sm font-semibold bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 disabled:opacity-50">
+                      Thêm ID
+                    </button>
+                  </div>
+
+                  {docHits.length > 0 && (
+                    <div className="mt-2 space-y-1 max-h-36 overflow-y-auto">
+                      {docHits.map((d) => {
+                        const key = d.so_hieu || d.vb_id || d.id || '';
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => void loadKhoans(d)}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm border ${pickedDoc === (d.so_hieu || key) ? 'border-primary/40 bg-primary/5' : 'border-slate-100 hover:bg-slate-50'}`}
+                          >
+                            <span className="font-mono font-semibold text-slate-800">{d.so_hieu || key}</span>
+                            {d.ten && <span className="text-slate-500 ml-2 line-clamp-1">{d.ten}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {khoanHits.length > 0 && (
+                    <div className="mt-2 space-y-1 max-h-48 overflow-y-auto border border-slate-100 rounded-xl p-2 bg-slate-50/80">
+                      <p className="text-xs font-bold text-slate-500 px-1 mb-1">Chọn khoản để đính kèm</p>
+                      {khoanHits.map((k, i) => {
+                        const kid = k.khoan_id || k.id || `k-${i}`;
+                        return (
+                          <button
+                            key={kid}
+                            type="button"
+                            onClick={() => addCitation(k)}
+                            className="w-full text-left px-3 py-2 rounded-lg text-sm bg-white border border-slate-100 hover:border-primary/30 hover:bg-primary/5"
+                          >
+                            <span className="font-mono text-xs text-primary font-bold">{kid}</span>
+                            <p className="text-slate-600 line-clamp-2 mt-0.5">{(k.noi_dung || k.tieu_de || '').slice(0, 160) || '—'}</p>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

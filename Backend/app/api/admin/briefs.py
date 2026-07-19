@@ -118,3 +118,17 @@ async def archive_brief(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Brief {id} không tồn tại")
     return success_response(data=item, request_id=get_request_id())
+
+
+@router.delete("/briefs/{id}", summary="Xóa bài tóm tắt")
+async def delete_brief(
+    id: str,
+    pool: Any = Depends(get_db_pool),
+    driver: Any = Depends(get_neo4j_driver),
+    user: UserToken = Depends(require_admin()),
+) -> dict[str, Any]:
+    service = BriefService(pool=pool, neo4j_driver=driver)
+    item = await service.delete_brief(id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Brief {id} không tồn tại")
+    return success_response(data={"id": id, "deleted": True}, request_id=get_request_id())

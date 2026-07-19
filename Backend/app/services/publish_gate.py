@@ -43,17 +43,13 @@ class PublishGateService:
         if current_status == "published":
             return True, brief_data, ["Brief đã được xuất bản trước đó."]
 
-        # 3. Citation validation check (must have at least one exact matching quote)
-        citations = brief_data.get("citations", [])
-        if not citations:
-            errors.append("Từ chối xuất bản: Brief chưa có bất kỳ trích dẫn (citation) pháp lý nào làm căn cứ.")
-            return False, {}, errors
-
-        is_valid, validated_citations, val_errors = await self.validator.validate_quotes(citations)
-        if not is_valid:
-            errors.append("Từ chối xuất bản: Trích dẫn sai lệch nguyên văn hoặc bịa đặt (Hallucinated quote).")
-            errors.extend(val_errors)
-            return False, {}, errors
+        # 3. Citations are optional. When present, prefer Neo4j-validated quotes but never block publish.
+        citations = brief_data.get("citations") or []
+        validated_citations: list[Any] = list(citations)
+        if citations:
+            is_valid, checked, _val_errors = await self.validator.validate_quotes(citations)
+            if is_valid and checked:
+                validated_citations = checked
 
         # 4. Perform Publish Transition & Audit Log record
         # Nhóm 4 — MUST propagate: publish + audit log is a critical business operation.

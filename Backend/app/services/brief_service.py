@@ -226,6 +226,32 @@ class BriefService:
             )
         return item
 
+    async def delete_brief(self, brief_id: str) -> dict[str, Any] | None:
+        """Xóa hẳn brief khỏi Postgres."""
+        item = await self.get_brief(brief_id)
+        if not item:
+            return None
+
+        if self.pool and hasattr(self.pool, "acquire"):
+            try:
+                async with self.pool.acquire() as conn:
+                    await conn.execute("DELETE FROM briefs WHERE id = $1::uuid", brief_id)
+            except Exception as exc:
+                logger.exception(
+                    "Failed to DELETE brief from Postgres",
+                    extra={"operation": "delete_brief", "brief_id": brief_id},
+                )
+                raise BriefPersistenceError(
+                    "Không thể xóa bản tóm tắt.",
+                    details={"brief_id": brief_id},
+                ) from exc
+        else:
+            raise BriefPersistenceError(
+                "Không thể xóa bản tóm tắt: Postgres không khả dụng.",
+                details={"brief_id": brief_id},
+            )
+        return item
+
 
 def _is_uuid(value: Any) -> bool:
     try:

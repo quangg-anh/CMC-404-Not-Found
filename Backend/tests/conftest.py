@@ -126,6 +126,18 @@ class FakeAsyncConnection:
                     JOBS[job_id]["error"] = args[1]
                 return "UPDATE 1"
             return "UPDATE 0"
+        if "delete from briefs" in q and args:
+            key = str(args[0])
+            if key in BRIEFS:
+                del BRIEFS[key]
+                return "DELETE 1"
+            return "DELETE 0"
+        if "delete from suggestions" in q and args:
+            key = str(args[0])
+            if key in SUGGESTS:
+                del SUGGESTS[key]
+                return "DELETE 1"
+            return "DELETE 0"
         return "OK"
 
     async def fetchval(self, query: str, *args: Any) -> Any:

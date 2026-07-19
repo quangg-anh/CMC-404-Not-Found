@@ -142,8 +142,9 @@ class SuggestService:
             tieu_de = updates.get("tieu_de") or ""
             noi_dung = updates.get("noi_dung_dinh_chinh") or ""
             suggest["draft_text"] = f"{tieu_de}\n\n{noi_dung}".strip() or suggest["draft_text"]
-        if updates.get("khoan_doi_chieu_id"):
-            suggest["khoan_ids"] = [updates["khoan_doi_chieu_id"]]
+        if "khoan_doi_chieu_id" in updates:
+            kid = updates.get("khoan_doi_chieu_id")
+            suggest["khoan_ids"] = [str(kid).strip()] if kid and str(kid).strip() else []
         if updates.get("status"):
             suggest["status"] = updates["status"]
 
@@ -173,3 +174,29 @@ class SuggestService:
             )
 
         return suggest
+
+    async def delete_suggestion(self, suggest_id: str) -> dict[str, Any] | None:
+        """Xóa hẳn đề xuất khỏi Postgres."""
+        item = await self.get_suggestion(suggest_id)
+        if not item:
+            return None
+
+        if self.pool and hasattr(self.pool, "acquire"):
+            try:
+                async with self.pool.acquire() as conn:
+                    await conn.execute("DELETE FROM suggestions WHERE id = $1::uuid", suggest_id)
+            except Exception as exc:
+                logger.exception(
+                    "Failed to DELETE suggestion from Postgres",
+                    extra={"operation": "delete_suggestion", "suggest_id": suggest_id},
+                )
+                raise SuggestionPersistenceError(
+                    "Không thể xóa đề xuất đính chính.",
+                    details={"suggest_id": suggest_id},
+                ) from exc
+        else:
+            raise SuggestionPersistenceError(
+                "Không thể xóa đề xuất đính chính: Postgres không khả dụng.",
+                details={"suggest_id": suggest_id},
+            )
+        return item

@@ -1163,12 +1163,12 @@ class QAService:
             refuse.extend(extra_reasons)
         return {
             "answer": answer,
-            "citations": [],
-            "confidence": "low",
-            "graph_paths": [],
+                "citations": [],
+                "confidence": "low",
+                "graph_paths": [],
             "graph_paths_status": "not_requested",
             "graph_paths_reason": "No valid citations to trace",
-            "audience": audience,
+                "audience": audience,
             "as_of": as_of,
             "notices": notices,
             "degraded": True,
@@ -1623,7 +1623,7 @@ class QAService:
                     notices=notices,
                     reason="LLM answer contradicted citations (NLI); used grounded doc summary.",
                 )
-            return {
+        return {
                 "answer": "Câu trả lời mâu thuẫn với chính căn cứ pháp lý được trích dẫn, nên đã bị hệ thống từ chối để bảo đảm an toàn.",
                 "citations": [],
                 "confidence": "low",
