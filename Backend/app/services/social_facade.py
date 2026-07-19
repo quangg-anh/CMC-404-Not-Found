@@ -98,7 +98,13 @@ class SocialAlertFacade:
             try:
                 collected.extend(await collector.collect(active_topics, limit_per_topic=limit_per_topic))
             except Exception as exc:  # noqa: BLE001
-                errors.append({"platform": provider, "message": str(exc)})
+                msg = getattr(exc, "message", None) or str(exc)
+                details = getattr(exc, "details", None)
+                if isinstance(details, dict) and details:
+                    hint = details.get("reason") or details.get("hint") or details.get("status_code")
+                    if hint:
+                        msg = f"{msg} [{hint}]"
+                errors.append({"platform": provider, "message": msg, "details": details if isinstance(details, dict) else None})
 
         ingested_items: list[dict[str, Any]] = []
         if not dry_run and self.neo_repo:
@@ -110,8 +116,21 @@ class SocialAlertFacade:
                 except Exception as exc:  # noqa: BLE001
                     errors.append({"platform": payload.get("platform"), "external_id": payload.get("external_id"), "message": str(exc)})
 
+        status = "success" if collected else ("partial" if errors else "failed")
+        if collected and errors:
+            status = "partial"
+        elif not collected and errors:
+            status = "failed"
+
+        message = None
+        if errors and not collected:
+            message = errors[0].get("message") or "Crawl thất bại."
+        elif errors:
+            message = f"Thu thập được {len(collected)} mục, có {len(errors)} lỗi."
+
         return {
-            "status": "success" if collected or not errors else "failed",
+            "status": status,
+            "message": message,
             "topics": active_topics,
             "platforms": sorted(active_platforms),
             "dry_run": dry_run,

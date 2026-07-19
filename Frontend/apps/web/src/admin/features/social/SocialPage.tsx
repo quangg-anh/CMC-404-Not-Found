@@ -47,7 +47,7 @@ interface CrawlResp {
   collected: number;
   ingested: number;
   items?: Post[];
-  errors?: { platform?: string; message: string }[];
+  errors?: { platform?: string; message: string; details?: Record<string, unknown> }[];
   message?: string;
 }
 
@@ -256,8 +256,20 @@ function CrawlPanel() {
             <div className="grid grid-cols-2 gap-3">
               <ResultStat label="Thu thập" value={result.collected} />
               <ResultStat label="Đã lưu" value={result.ingested} />
-              <div className="col-span-2 text-xs font-semibold text-slate-500 leading-relaxed">
-                {result.message || (result.errors?.length ? `Có ${result.errors.length} lỗi nguồn.` : 'Crawl hoàn tất. Bấm tab Bài đăng để xem dữ liệu.')}
+              <div className="col-span-2 text-xs font-semibold text-slate-500 leading-relaxed space-y-1">
+                <p>
+                  {result.message
+                    || (result.errors?.length
+                      ? `Có ${result.errors.length} lỗi nguồn.`
+                      : 'Crawl hoàn tất. Bấm tab Bài đăng để xem dữ liệu.')}
+                </p>
+                {result.errors && result.errors.length > 0 && (
+                  <ul className="mt-1 space-y-1 text-red-600 font-bold">
+                    {result.errors.slice(0, 3).map((err, i) => (
+                      <li key={i}>• [{err.platform || 'nguồn'}] {err.message}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           ) : (

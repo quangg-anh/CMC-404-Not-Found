@@ -73,6 +73,23 @@ def _useful_comment(text: str, min_length: int) -> bool:
     return True
 
 
+def _youtube_error_reason(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+        err = payload.get("error") if isinstance(payload, dict) else None
+        if not isinstance(err, dict):
+            return None
+        errors = err.get("errors") or []
+        if isinstance(errors, list) and errors:
+            first = errors[0] if isinstance(errors[0], dict) else {}
+            reason = first.get("reason") or first.get("message")
+            if reason:
+                return str(reason)
+        return str(err.get("message") or "") or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class FacebookGraphCollector:
     def __init__(self, config: BE2Config | None = None, http_client: httpx.AsyncClient | None = None) -> None:
         self.config = config or get_config()
@@ -140,30 +157,48 @@ class YouTubeDataCollector:
     async def collect(self, topics: list[str], *, limit_per_topic: int | None = None) -> list[dict[str, Any]]:
         api_keys = self._api_keys()
         if not api_keys:
-            return []
+            raise ExternalServiceError(
+                "Chưa cấu hình YouTube API key hợp lệ (BE2_YOUTUBE_API_KEY / BE2_YOUTUBE_API_KEYS).",
+                details={"provider": "youtube", "hint": "Thêm key thật trên Google Cloud → YouTube Data API v3, không dùng change_me_*"},
+            )
         limit = limit_per_topic or self.config.social_monitor_limit_per_topic
         client = self._http or httpx.AsyncClient(timeout=20.0)
         close = self._http is None
         try:
             last_status_code: int | None = None
+            last_reason: str | None = None
             for api_key in api_keys:
                 try:
                     return await self._collect_with_key(client, topics, limit, api_key)
                 except httpx.HTTPStatusError as exc:
                     status_code = exc.response.status_code
+                    reason = _youtube_error_reason(exc.response)
                     if status_code in {403, 429}:
                         last_status_code = status_code
+                        last_reason = reason
                         continue
                     raise ExternalServiceError(
-                        "YouTube Data API collection failed",
-                        details={"provider": "youtube", "status_code": status_code},
+                        f"YouTube Data API lỗi HTTP {status_code}" + (f": {reason}" if reason else ""),
+                        details={"provider": "youtube", "status_code": status_code, "reason": reason},
                     ) from None
             raise ExternalServiceError(
-                "YouTube Data API collection failed",
-                details={"provider": "youtube", "status_code": last_status_code, "attempted_keys": len(api_keys)},
+                "YouTube Data API hết hạn mức hoặc bị chặn"
+                + (f" ({last_reason})" if last_reason else "")
+                + ". Thử thêm BE2_YOUTUBE_API_KEYS hoặc đợi reset quota.",
+                details={
+                    "provider": "youtube",
+                    "status_code": last_status_code,
+                    "reason": last_reason,
+                    "attempted_keys": len(api_keys),
+                },
             ) from None
-        except (httpx.TimeoutException, httpx.HTTPError):
-            raise ExternalServiceError("YouTube Data API collection failed", details={"provider": "youtube"}) from None
+        except ExternalServiceError:
+            raise
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            raise ExternalServiceError(
+                f"YouTube Data API không kết nối được: {exc}",
+                details={"provider": "youtube"},
+            ) from exc
         finally:
             if close:
                 await client.aclose()
