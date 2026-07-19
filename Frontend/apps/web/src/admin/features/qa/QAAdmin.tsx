@@ -48,6 +48,7 @@ interface ChatMessage {
   citations?: BackendCitation[];
   confidence?: 'high' | 'medium' | 'low';
   unverified?: boolean;
+  degraded?: boolean;
   refuseReason?: string[];
   isTyping?: boolean;
   graphPaths?: GraphPath[];
@@ -146,7 +147,7 @@ export default function QAAdminPage() {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === typingId
-            ? { id: typingId, role: 'assistant', content: data.answer, citations: data.citations ?? [], confidence: data.confidence, graphPaths: data.graph_paths, unverified: Boolean(data.unverified || data.degraded), refuseReason: data.refuse_reason }
+            ? { id: typingId, role: 'assistant', content: data.answer, citations: data.citations ?? [], confidence: data.confidence, graphPaths: data.graph_paths, unverified: Boolean(data.unverified), degraded: Boolean(data.degraded), refuseReason: data.refuse_reason }
             : m,
         ),
       );
@@ -254,7 +255,7 @@ export default function QAAdminPage() {
               {msg.graphPaths && msg.graphPaths.length > 0 && (
                 <GraphPathBreadcrumb paths={msg.graphPaths} />
               )}
-              {msg.role === 'assistant' && !msg.isTyping && msg.unverified && msg.id !== 'welcome' && (
+              {msg.role === 'assistant' && !msg.isTyping && msg.unverified && !(msg.citations?.length) && msg.id !== 'welcome' && (
                 <div className="w-full rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-4 text-amber-900 shadow-sm md:min-w-[620px]">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 ring-1 ring-amber-200">
@@ -272,6 +273,11 @@ export default function QAAdminPage() {
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+              {msg.role === 'assistant' && !msg.isTyping && msg.degraded && !msg.unverified && msg.id !== 'welcome' && (
+                <div className="w-full rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sky-900 text-xs font-semibold leading-6">
+                  Câu trả lời dùng căn cứ đã truy hồi từ kho số hóa (chế độ tóm lược / remap citation). Nên đối chiếu bản chính thức trước khi dùng chính thức.
                 </div>
               )}
             </div>

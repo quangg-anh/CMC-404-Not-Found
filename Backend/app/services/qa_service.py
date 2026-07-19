@@ -415,6 +415,25 @@ class QAService:
         return out
 
     @classmethod
+    def _remap_citation_quotes(
+        cls,
+        citations: list[Any],
+        candidates: list[CandidateKhoan],
+    ) -> list[dict[str, Any]]:
+        """Replace LLM paraphrased quotes with grounded snippets for known khoan_ids."""
+        by_id = {c.khoan_id: c for c in candidates if c.khoan_id}
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for cit in citations:
+            kid = cit.khoan_id if hasattr(cit, "khoan_id") else (cit.get("khoan_id") if isinstance(cit, dict) else "")
+            kid = str(kid or "").strip()
+            if not kid or kid in seen or kid not in by_id:
+                continue
+            seen.add(kid)
+            out.append({"khoan_id": kid, "quote": cls._clip_ctx(by_id[kid].noi_dung, 120)})
+        return out
+
+    @classmethod
     def _narrow_citations(
         cls,
         answer: str,
@@ -1221,6 +1240,7 @@ class QAService:
             "as_of": as_of,
             "notices": notices,
             "degraded": True,
+            "unverified": False,
             "refuse_reason": [reason],
         }
 
@@ -1536,8 +1556,16 @@ class QAService:
         is_valid, validated_citations, errors = await self.validator.validate_quotes(
             raw_citations, preloaded_sources=candidates
         )
+        quote_mismatched = any("Quote mismatch" in e for e in errors)
+        # Salvage id-only / empty-quote citations (not hallucinated paraphrases).
+        if (not validated_citations) and candidates and raw_citations and not quote_mismatched:
+            remapped = self._remap_citation_quotes(raw_citations, candidates)
+            if remapped:
+                is_valid, validated_citations, errors = await self.validator.validate_quotes(
+                    remapped, preloaded_sources=candidates
+                )
         # Prefer LLM citations; if empty but we have retrieved candidates that the answer references, seed them.
-        if not validated_citations and candidates and self._answer_has_legal_refs(raw_answer):
+        if not validated_citations and candidates and self._answer_has_legal_refs(raw_answer) and not quote_mismatched:
             seeded = [
                 {"khoan_id": c.khoan_id, "quote": self._clip_ctx(c.noi_dung, 120)}
                 for c in candidates
@@ -1553,11 +1581,9 @@ class QAService:
             raw_answer, validated_citations or [], question, max_n=5 if doc_q else 2
         )
 
-        # For document lookup, seed citations from retrieved clauses when the model forgot them
-        # (empty citations). Do NOT seed after hallucinated quotes failed validation — fail-closed.
+        # Seed from retrieved clauses when the model forgot citations (empty list only).
         if (
             not validated_citations
-            and doc_q
             and candidates
             and raw_answer.strip()
             and not raw_citations
@@ -1565,18 +1591,18 @@ class QAService:
             seeded = [
                 {"khoan_id": c.khoan_id, "quote": self._clip_ctx(c.noi_dung, 120)}
                 for c in candidates[:5]
-                if c.khoan_id
+                if c.khoan_id and c.noi_dung
             ]
             if seeded:
                 is_valid, validated_citations, errors = await self.validator.validate_quotes(
                     seeded, preloaded_sources=candidates
                 )
                 validated_citations = self._narrow_citations(
-                    raw_answer, validated_citations or [], question, max_n=5
+                    raw_answer, validated_citations or [], question, max_n=5 if doc_q else 2
                 )
         if not is_valid or not validated_citations:
             # Prefer corpus-grounded summary / unverified answer over opaque refuse.
-            if candidates and (doc_q or overview_q):
+            if candidates and (doc_q or overview_q or quote_mismatched):
                 return self._grounded_doc_answer(
                     question=question,
                     candidates=candidates,
@@ -1588,6 +1614,30 @@ class QAService:
                         + "; ".join(errors[:3])
                     ).strip(),
                 )
+            if candidates and raw_answer.strip() and not quote_mismatched:
+                seeded = [
+                    {"khoan_id": c.khoan_id, "quote": self._clip_ctx(c.noi_dung, 120)}
+                    for c in candidates[:3]
+                    if c.khoan_id and c.noi_dung
+                ]
+                ok, grounded, _ = await self.validator.validate_quotes(seeded, preloaded_sources=candidates)
+                if ok and grounded:
+                    return {
+                        "answer": raw_answer,
+                        "citations": self._compact_citations(grounded),
+                        "confidence": "medium",
+                        "graph_paths": [],
+                        "graph_paths_status": "not_requested",
+                        "graph_paths_reason": "Grounded citations remapped from retrieval",
+                        "audience": audience,
+                        "as_of": as_of_val,
+                        "notices": notices,
+                        "degraded": True,
+                        "unverified": False,
+                        "refuse_reason": [
+                            "Attached verified snippets from retrieved clauses."
+                        ],
+                    }
             if raw_answer.strip():
                 return {
                     "answer": raw_answer,

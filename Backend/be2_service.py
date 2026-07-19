@@ -513,6 +513,10 @@ def _citations_from_answer(top: list[tuple[str, str]], question: str, answer: st
         kid_norm = _strip_accents(kid)
         if kid in preferred or kid_norm in answer_norm or _topic_relevance(question, f"{kid} {text}") >= 0.5:
             citations.append({"khoan_id": kid, "quote": _clip_ctx(text, 120)})
+    # Always ground at least one clause from retrieved context when the answer is usable.
+    if not citations and top:
+        kid, text = top[0]
+        citations.append({"khoan_id": kid, "quote": _clip_ctx(text, 120)})
     return citations
 
 

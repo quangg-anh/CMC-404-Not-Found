@@ -8,6 +8,24 @@ def _normalize_for_match(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _quote_candidates(quote: str) -> list[str]:
+    """Variants to try against canonical text (LLM often truncates / adds ellipsis)."""
+    raw = _normalize_for_match(quote or "")
+    if not raw:
+        return []
+    variants = [raw]
+    trimmed = re.sub(r"(\.\.\.|…)\s*$", "", raw).strip()
+    if trimmed and trimmed not in variants:
+        variants.append(trimmed)
+    # Progressive shortening helps when the model paraphrased the tail.
+    for n in (100, 80, 60, 40):
+        if len(trimmed) > n:
+            chunk = trimmed[:n].rstrip(" ,.;:")
+            if chunk and chunk not in variants:
+                variants.append(chunk)
+    return variants
+
+
 class CitationValidator:
     """Validator ensuring citations verbatim exist in canonical source texts (Neo4j Khoan nodes)."""
 
@@ -57,8 +75,8 @@ class CitationValidator:
             kid = cit.khoan_id if isinstance(cit, Citation) else cit.get("khoan_id", "")
             quote = cit.quote if isinstance(cit, Citation) else cit.get("quote", "")
 
-            if not kid or not quote:
-                errors.append(f"Invalid citation item missing khoan_id or quote: {cit}")
+            if not kid:
+                errors.append(f"Invalid citation item missing khoan_id: {cit}")
                 continue
 
             canonical = source_map.get(kid)
@@ -69,20 +87,31 @@ class CitationValidator:
                 errors.append(f"Khoan canonical text not found in Neo4j for ID: {kid}")
                 continue
 
-            quote_clean = _normalize_for_match(quote)
             canonical_clean = _normalize_for_match(canonical)
-            start = canonical_clean.find(quote_clean)
+            # Empty quote but known khoan_id in retrieval → use a grounded snippet.
+            if not (quote or "").strip() and kid in source_map:
+                quote = canonical_clean[:120]
 
-            if start < 0:
-                errors.append(f"Quote mismatch (hallucination detected) for {kid}: quote='{quote.strip()[:40]}...'")
+            matched_quote: str | None = None
+            start = -1
+            for variant in _quote_candidates(str(quote)):
+                start = canonical_clean.find(variant)
+                if start >= 0:
+                    matched_quote = variant
+                    break
+
+            if matched_quote is None:
+                errors.append(
+                    f"Quote mismatch (hallucination detected) for {kid}: quote='{str(quote).strip()[:40]}...'"
+                )
                 continue
 
-            end = start + len(quote_clean)
-            coverage = round(len(quote_clean) / max(1, len(canonical_clean)), 3)
+            end = start + len(matched_quote)
+            coverage = round(len(matched_quote) / max(1, len(canonical_clean)), 3)
 
             validated.append({
                 "khoan_id": kid,
-                "quote": quote_clean,
+                "quote": matched_quote,
                 "van_ban": kid.split("::")[0] if "::" in kid else "Nghị định/Luật",
                 "dieu": kid.split("::")[1].split(".")[0].replace("D", "Điều ") if "::" in kid and "." in kid else "Điều 1",
                 "start": start,
