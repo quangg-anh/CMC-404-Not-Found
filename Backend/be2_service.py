@@ -642,7 +642,20 @@ async def _handle(task: str, prompt: str, timeout_s: float, model: str | None = 
 
 
 @app.get("/health")
+@app.get("/healthz")
 async def health() -> dict[str, Any]:
+    """Liveness only — do not probe upstream LLM here (Railway healthcheck must stay fast)."""
+    return {
+        "ok": True,
+        "status": "ok",
+        "service": "be2-intelligence",
+        "backend": BACKEND,
+    }
+
+
+@app.get("/ready")
+async def ready() -> dict[str, Any]:
+    """Readiness: optional probe of OpenAI-compatible host."""
     info: dict[str, Any] = {
         "ok": True,
         "service": "be2-intelligence",
@@ -651,13 +664,12 @@ async def health() -> dict[str, Any]:
         "llm_local_model": LLM_LOCAL_MODEL,
         "llm_large_model": LLM_LARGE_MODEL,
     }
-    # Best-effort probe of the OpenAI-compatible base (models list if the provider exposes it).
     if BACKEND == "openai" and OPENAI_BASE_URL:
         try:
             headers = {}
             if OPENAI_API_KEY:
                 headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            async with httpx.AsyncClient(timeout=2.0) as client:
                 r = await client.get(f"{OPENAI_BASE_URL}/models", headers=headers)
                 info["openai_reachable"] = r.is_success
         except Exception:

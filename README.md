@@ -100,7 +100,8 @@ docker-compose -f Data/docker-compose.data.yml --env-file Data/.env up -d
 > 3. `Data/.env` `EMBEDDING_DIM=1536` khớp backend; recreate Qdrant nếu trước đó dùng 1024
 > 4. Chạy `cd Backend && pytest -vv` → 0 failed
 > 5. **Railway FE:** Root Directory = `Frontend`. **Không** đặt Build Command = `npm ci && …` (Railpack đã install — lần 2 gây EBUSY). Chỉ cần `VITE_API_URL=https://<backend-public>.up.railway.app`, Redeploy. Citizen `/`, Admin `/admin`. Backend: `CORS_ALLOW_ALL=true`.
-> 6. **Railway BE:** Root Directory = `Backend`. Dùng `Backend/Dockerfile` hoặc `Backend/nixpacks.toml` (`startCommand`: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`). Service BE2 riêng: `uvicorn be2_service:app --host 0.0.0.0 --port $PORT` + `BE2_INTELLIGENCE_URL` trỏ tới URL public của BE2.
+> 6. **Railway BE:** Root Directory = `Backend`, builder Dockerfile. **Tắt Healthcheck Path trong UI** (hoặc để trống) — dùng TCP port check; HTTP `/health` vẫn có để tự kiểm. `AUTH_TOKEN_SECRET` ≥32 ký tự. BE2 service: Dockerfile path = `Dockerfile.be2`.
+> 7. Nếu deploy vẫn **Healthcheck failure**: Settings → Healthcheck → **Clear path** → Redeploy. Kiểm tra Deploy logs có `Uvicorn running on http://0.0.0.0`.
 
 ### Git LFS (backup Qdrant / snapshot lớn)
 

@@ -198,10 +198,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 @app.get("/health", summary="Health check endpoint")
+@app.get("/healthz", summary="Health check alias")
 async def health_check() -> dict[str, Any]:
-    from app.core.security import security_boot_error
+    """Liveness only — must not touch DB/Neo4j/Redis (Railway probes this)."""
+    boot_err: str | None = None
+    try:
+        from app.core.security import security_boot_error
 
-    boot_err = security_boot_error()
+        boot_err = security_boot_error()
+    except Exception as exc:  # noqa: BLE001
+        boot_err = str(exc)
     return {
         "status": "ok",
         "service": "be3-gateway",
