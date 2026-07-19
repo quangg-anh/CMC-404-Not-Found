@@ -47,7 +47,7 @@ function statusBadge(status: string) {
   }
 }
 function citationText(c: Record<string, any>): string {
-  return c.text ?? c.quote ?? [c.van_ban, c.dieu].filter(Boolean).join(' — ') || 'Căn cứ đã đính kèm';
+  return c.text ?? c.quote ?? ([c.van_ban, c.dieu].filter(Boolean).join(' — ') || 'Căn cứ đã đính kèm');
 }
 function citationId(c: Record<string, any>, i: number): string {
   return c.id ?? c.khoan_id ?? `cit-${i}`;
