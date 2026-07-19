@@ -235,6 +235,136 @@ class SocialAlertFacade:
             "errors": errors,
         }
 
+    async def reprocess_existing_posts(
+        self,
+        *,
+        limit: int = 100,
+        only_missing_doi_chieu: bool = True,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Run claim/NLI/alert on BaiDang already in Neo4j (pre-fix crawl data).
+
+        Default: only posts that still lack DOI_CHIEU. Set only_missing_doi_chieu=False to redo all.
+        """
+        if not self.neo_repo or not self.driver:
+            return {
+                "status": "failed",
+                "message": "Neo4j không khả dụng — không thể đọc bài cũ.",
+                "processed": 0,
+                "alerts_created": 0,
+                "items": [],
+            }
+
+        cfg = get_config()
+        bounded = max(1, min(int(limit), 500))
+        ids: list[str] = []
+        try:
+            if only_missing_doi_chieu:
+                query = """
+                MATCH (b:BaiDang)
+                WHERE b.platform IS NOT NULL AND b.external_id IS NOT NULL
+                  AND b.noi_dung IS NOT NULL AND size(toString(b.noi_dung)) >= 20
+                OPTIONAL MATCH (b)-[:CO_YKIEN]->(:YKien)-[d:DOI_CHIEU]->(:Khoan)
+                WITH b, count(d) AS doi
+                WHERE doi = 0
+                RETURN b.platform AS platform, b.external_id AS external_id
+                ORDER BY coalesce(b.ngay_dang, b.thoi_gian, b.ingested_at) DESC
+                LIMIT $limit
+                """
+            else:
+                query = """
+                MATCH (b:BaiDang)
+                WHERE b.platform IS NOT NULL AND b.external_id IS NOT NULL
+                  AND b.noi_dung IS NOT NULL AND size(toString(b.noi_dung)) >= 20
+                RETURN b.platform AS platform, b.external_id AS external_id
+                ORDER BY coalesce(b.ngay_dang, b.thoi_gian, b.ingested_at) DESC
+                LIMIT $limit
+                """
+            async with self.driver.session() as session:
+                res = await session.run(query, limit=bounded)
+                async for record in res:
+                    platform = record.get("platform")
+                    external_id = record.get("external_id")
+                    if platform and external_id:
+                        ids.append(f"{platform}:{external_id}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed listing BaiDang for reprocess", exc_info=True)
+            return {
+                "status": "failed",
+                "message": f"Không đọc được bài cũ từ Neo4j: {exc}",
+                "processed": 0,
+                "alerts_created": 0,
+                "items": [],
+            }
+
+        if not ids:
+            return {
+                "status": "success",
+                "message": (
+                    "Không còn bài cũ thiếu DOI_CHIEU."
+                    if only_missing_doi_chieu
+                    else "Không có BaiDang đủ dài để xử lý."
+                ),
+                "processed": 0,
+                "alerts_created": 0,
+                "skipped": 0,
+                "items": [],
+            }
+
+        if dry_run:
+            return {
+                "status": "success",
+                "message": f"Dry-run: sẽ xử lý {len(ids)} bài cũ.",
+                "processed": 0,
+                "alerts_created": 0,
+                "planned": len(ids),
+                "items": [{"bai_dang_id": i} for i in ids[:50]],
+            }
+
+        try:
+            await self.neo_repo.ensure_topics_from_posts()
+        except Exception:  # noqa: BLE001
+            logger.warning("ensure_topics_from_posts failed before reprocess", exc_info=True)
+
+        review_ctx = await self._build_review_ctx(cfg)
+        if not review_ctx:
+            return {
+                "status": "failed",
+                "message": "Không khởi tạo được pipeline claim/NLI.",
+                "processed": 0,
+                "alerts_created": 0,
+                "items": [],
+            }
+
+        from app.workers.social_jobs import _chain_social_review
+
+        chain_results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        for bai_dang_id in ids:
+            try:
+                chain_results.append(
+                    await _chain_social_review(review_ctx, bai_dang_id=bai_dang_id, dry_run=False)
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"bai_dang_id": bai_dang_id, "message": str(exc)})
+
+        alerts_made = sum(1 for c in chain_results if c.get("alert"))
+        claims = sum(int(c.get("claims") or 0) for c in chain_results)
+        status = "success" if chain_results and not errors else ("partial" if chain_results else "failed")
+        return {
+            "status": status,
+            "message": (
+                f"Đã xử lý {len(chain_results)}/{len(ids)} bài cũ: "
+                f"{claims} đối chiếu DOI_CHIEU, {alerts_made} cảnh báo mới."
+            ),
+            "processed": len(chain_results),
+            "planned": len(ids),
+            "claims": claims,
+            "alerts_created": alerts_made,
+            "errors": errors,
+            "items": chain_results[:50],
+        }
+
     async def list_topics(self) -> list[dict[str, Any]]:
         """List legal topics monitored on social channels (Neo4j ChuDe).
 

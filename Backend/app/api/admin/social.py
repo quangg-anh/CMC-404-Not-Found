@@ -29,6 +29,15 @@ class CrawlSocialRequest(BaseModel):
     dry_run: bool = Field(default=False, description="Chỉ thu thập thử, không ghi DB")
 
 
+class ReprocessSocialRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=500, description="Số BaiDang cũ tối đa cần chạy lại claim/NLI")
+    only_missing_doi_chieu: bool = Field(
+        default=True,
+        description="Chỉ xử lý bài chưa có DOI_CHIEU (dữ liệu crawl trước khi pipeline được nối)",
+    )
+    dry_run: bool = Field(default=False, description="Chỉ liệt kê bài sẽ xử lý, không ghi")
+
+
 @router.post("/ingest/social", summary="Đẩy bài đăng MXH vào pipeline BE2")
 async def ingest_social(
     request: IngestSocialRequest,
@@ -90,6 +99,25 @@ async def crawl_social(
         dry_run=request.dry_run,
     )
     return success_response(data=data, request_id=get_request_id())
+
+
+@router.post(
+    "/social/reprocess",
+    summary="Chạy lại claim/NLI/alert trên BaiDang đã có trong Neo4j (dữ liệu crawl cũ)",
+)
+async def reprocess_social(
+    request: ReprocessSocialRequest,
+    pool: Any = Depends(get_db_pool),
+    driver: Any = Depends(get_neo4j_driver),
+) -> dict[str, Any]:
+    facade = SocialAlertFacade(pool=pool, neo4j_driver=driver)
+    data = await facade.reprocess_existing_posts(
+        limit=request.limit,
+        only_missing_doi_chieu=request.only_missing_doi_chieu,
+        dry_run=request.dry_run,
+    )
+    return success_response(data=data, request_id=get_request_id())
+
 
 @router.post("/social/link-preview", summary="Trích xuất metadata & xem trước nội dung URL")
 @router.post("/link/preview", summary="Trích xuất metadata & xem trước nội dung URL (Alias khớp bảng §5.2)")

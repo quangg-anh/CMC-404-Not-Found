@@ -1,8 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { MagnifyingGlass, ChartLineUp, Users, CheckCircle, Warning, CaretRight, Robot, Spinner, Link as LinkIcon } from '@phosphor-icons/react';
+import { MagnifyingGlass, ChartLineUp, Users, CheckCircle, Warning, CaretRight, Robot, Spinner, Link as LinkIcon, ArrowsClockwise } from '@phosphor-icons/react';
 import { RiskBadge, type RiskLabel } from '../../../../../../packages/ui-legal/src/components/RiskBadge';
 import { CitationCard } from '../../../../../../packages/ui-legal/src/components/CitationCard';
-import { apiGet, apiPatch } from '../../../lib/api';
+import { apiGet, apiPatch, apiPost } from '../../../lib/api';
 import { ErrorBanner, PageHeader } from '../../components/AdminChrome';
 
 interface RawAlert {
@@ -109,6 +109,8 @@ export default function AlertsPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessMsg, setReprocessMsg] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -121,6 +123,34 @@ export default function AlertsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const reprocessOld = async () => {
+    setReprocessing(true);
+    setReprocessMsg(null);
+    setError(null);
+    try {
+      const data = await apiPost<{
+        status?: string;
+        message?: string;
+        processed?: number;
+        alerts_created?: number;
+        claims?: number;
+      }>('/admin/social/reprocess', {
+        limit: 100,
+        only_missing_doi_chieu: true,
+        dry_run: false,
+      });
+      setReprocessMsg(
+        data.message ??
+          `Đã xử lý ${data.processed ?? 0} bài cũ, ${data.alerts_created ?? 0} cảnh báo.`,
+      );
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lỗi xử lý lại bài cũ');
+    } finally {
+      setReprocessing(false);
+    }
+  };
 
   const triage = async (id: string, action: 'dismiss' | 'create_suggest') => {
     setBusyId(id);
@@ -149,20 +179,40 @@ export default function AlertsPage() {
         title="Cảnh báo tin giả & sai lệch"
         subtitle="AI trích xuất nhận định pháp lý trên MXH và đối chiếu với cơ sở dữ liệu luật — số liệu từ API `/admin/alerts`."
         actions={
-          <div className="relative">
-            <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm chủ đề hoặc claim…"
-              className="admin-input w-64 !py-2.5 pl-10"
-            />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void reprocessOld()}
+              disabled={reprocessing}
+              className="admin-btn-secondary inline-flex items-center gap-2 !py-2.5"
+            >
+              {reprocessing ? (
+                <Spinner size={16} className="animate-spin" aria-hidden />
+              ) : (
+                <ArrowsClockwise size={16} aria-hidden />
+              )}
+              {reprocessing ? 'Đang xử lý bài cũ…' : 'Xử lý lại bài đã crawl'}
+            </button>
+            <div className="relative">
+              <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Tìm chủ đề hoặc claim…"
+                className="admin-input w-64 !py-2.5 pl-10"
+              />
+            </div>
           </div>
         }
       />
 
       {error ? <div className="mb-6"><ErrorBanner message={error} /></div> : null}
+      {reprocessMsg ? (
+        <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+          {reprocessMsg}
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 p-16 text-sm font-semibold text-muted">
@@ -172,10 +222,23 @@ export default function AlertsPage() {
         <div className="admin-card p-16 text-center">
           <Warning size={40} className="mx-auto mb-4 text-border" weight="fill" aria-hidden />
           <p className="font-semibold text-muted">Chưa có cảnh báo nào được ghi nhận.</p>
-          <p className="mt-1 text-sm text-muted max-w-md mx-auto">
-            Cảnh báo xuất hiện sau khi crawl MXH (không dry-run) chạy pipeline claim/NLI và phát hiện mâu thuẫn
-            với Khoản. Kiểm tra <code className="text-xs">BE2_ALERT_VOLUME_THRESHOLD=1</code> và OpenAI/NLI.
+          <p className="mt-1 text-sm text-muted max-w-lg mx-auto">
+            Bài MXH đã crawl trước đây chưa chạy claim/NLI. Bấm <strong>Xử lý lại bài đã crawl</strong> để đọc
+            dữ liệu cũ trong Neo4j, tạo DOI_CHIEU và cảnh báo — không cần crawl lại.
           </p>
+          <button
+            type="button"
+            onClick={() => void reprocessOld()}
+            disabled={reprocessing}
+            className="admin-btn-primary mt-6 inline-flex items-center gap-2"
+          >
+            {reprocessing ? (
+              <Spinner size={16} className="animate-spin" aria-hidden />
+            ) : (
+              <ArrowsClockwise size={16} aria-hidden />
+            )}
+            Xử lý lại bài đã crawl
+          </button>
         </div>
       ) : (
         <div className="space-y-5">
