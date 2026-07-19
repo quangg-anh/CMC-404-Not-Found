@@ -10,6 +10,7 @@
 CREATE TABLE IF NOT EXISTS briefs (
   id           UUID PRIMARY KEY,             -- = Neo4j BaiTomTat.uuid
   tieu_de      TEXT,
+  noi_dung     TEXT,                         -- nội dung bài viết / dàn ý
   media_type   media_type NOT NULL DEFAULT 'text',
   status       brief_status NOT NULL DEFAULT 'draft',
   citations    JSONB NOT NULL DEFAULT '[]'::jsonb,  -- [{khoan_id, quote}]

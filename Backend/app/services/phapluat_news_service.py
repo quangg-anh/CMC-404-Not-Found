@@ -209,11 +209,12 @@ class PhapLuatNewsService:
                 title = f"[{item.topic}] {item.title}"
                 await conn.execute(
                     """
-                    INSERT INTO briefs (id, tieu_de, media_type, status, citations, created_by)
-                    VALUES ($1::uuid, $2, 'text', 'draft', $3::jsonb, $4::uuid)
+                    INSERT INTO briefs (id, tieu_de, noi_dung, media_type, status, citations, created_by)
+                    VALUES ($1::uuid, $2, $3, 'text', 'draft', $4::jsonb, $5::uuid)
                     """,
                     brief_id,
                     title,
+                    item.body or "",
                     json.dumps(citations, ensure_ascii=False),
                     user_id if _is_uuid(user_id) else None,
                 )

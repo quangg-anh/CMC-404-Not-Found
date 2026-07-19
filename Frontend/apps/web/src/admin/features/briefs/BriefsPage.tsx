@@ -9,6 +9,7 @@ import { apiDelete, apiGet, apiPatch, apiPost } from '../../../lib/api';
 interface Brief {
   id: string;
   tieu_de: string;
+  noi_dung?: string;
   media_type: string;
   status: string;
   citations: Array<Record<string, any>>;
@@ -61,6 +62,7 @@ export default function BriefsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [editBody, setEditBody] = useState('');
   const [editMedia, setEditMedia] = useState('article');
   const [editCitations, setEditCitations] = useState<Array<Record<string, any>>>([]);
   const [searchQ, setSearchQ] = useState('');
@@ -72,6 +74,8 @@ export default function BriefsPage() {
   const select = (b: Brief) => {
     setActive(b);
     setEditTitle(b.tieu_de ?? '');
+    const fromCit = (b.citations ?? []).find((c) => c.summary || c.published_text);
+    setEditBody(b.noi_dung || fromCit?.summary || fromCit?.published_text || '');
     const alias = b.media_type === 'image' ? 'infographic' : b.media_type === 'video' ? 'video_script' : 'article';
     setEditMedia(alias);
     setEditCitations(Array.isArray(b.citations) ? [...b.citations] : []);
@@ -125,6 +129,7 @@ export default function BriefsPage() {
     try {
       const updated = await apiPatch<Brief>(`/admin/briefs/${active.id}`, {
         tieu_de: editTitle,
+        noi_dung: editBody,
         media_types: [editMedia],
         citations: editCitations,
       });
@@ -140,15 +145,16 @@ export default function BriefsPage() {
     if (!active) return;
     setSaving(true); setError(null); setNotice(null);
     try {
-      // Persist citations first so publish uses the latest editor state.
+      // Persist editor state first so publish uses the latest content.
       await apiPatch<Brief>(`/admin/briefs/${active.id}`, {
         tieu_de: editTitle,
+        noi_dung: editBody,
         media_types: [editMedia],
         citations: editCitations,
       });
       const data = await apiPost<Brief>(`/admin/briefs/${active.id}/publish`, {});
       setBriefs((prev) => prev.map((b) => (b.id === data.id ? { ...b, ...data } : b)));
-      select({ ...active, ...data, citations: data.citations ?? editCitations });
+      select({ ...active, ...data, citations: data.citations ?? editCitations, noi_dung: data.noi_dung ?? editBody });
       setNotice('Đã ban hành ra Cổng Người dân.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không ban hành được — kiểm tra quyền admin_truyen_thong / admin_ops.');
@@ -409,6 +415,16 @@ export default function BriefsPage() {
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-800 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all">
                     {MEDIA_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Nội dung bài viết</label>
+                  <textarea
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                    rows={12}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-800 text-base leading-relaxed resize-y min-h-[220px] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                    placeholder="Soạn nội dung bản tin hiển thị trên Cổng Người dân…"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
