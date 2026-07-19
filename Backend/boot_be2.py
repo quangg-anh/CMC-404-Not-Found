@@ -7,7 +7,12 @@ import traceback
 
 
 def main() -> None:
-    port = int(os.environ.get("PORT") or "8002")
+    raw = (os.environ.get("PORT") or "8002").strip()
+    try:
+        port = int(raw)
+    except ValueError:
+        print(f"[boot] invalid PORT={raw!r}, falling back to 8002", flush=True)
+        port = 8002
     print(f"[boot] BE2 PORT={port}", flush=True)
     try:
         import uvicorn

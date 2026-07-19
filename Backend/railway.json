@@ -5,6 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
+    "startCommand": "python boot_be3.py",
     "restartPolicyType": "ON_FAILURE"
   }
 }

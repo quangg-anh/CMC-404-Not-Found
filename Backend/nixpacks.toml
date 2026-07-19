@@ -1,4 +1,3 @@
-# Nixpacks fallback
 [phases.setup]
 nixPkgs = ["python312", "gcc", "postgresql"]
 

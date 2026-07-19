@@ -7,7 +7,12 @@ import traceback
 
 
 def main() -> None:
-    port = int(os.environ.get("PORT") or "8000")
+    raw = (os.environ.get("PORT") or "8000").strip()
+    try:
+        port = int(raw)
+    except ValueError:
+        print(f"[boot] invalid PORT={raw!r}, falling back to 8000", flush=True)
+        port = 8000
     print(f"[boot] PYTHONPATH={os.environ.get('PYTHONPATH')!r} PORT={port}", flush=True)
     try:
         import uvicorn

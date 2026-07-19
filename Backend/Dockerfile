@@ -7,4 +7,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+# PORT is read inside boot_be3.py from os.environ — never pass $PORT on the CLI.
 CMD ["python", "boot_be3.py"]
