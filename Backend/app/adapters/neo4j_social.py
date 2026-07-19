@@ -17,6 +17,26 @@ def topic_slug(name: str | None) -> str | None:
     return cleaned.casefold()
 
 
+def _coerce_datetime(value: Any) -> datetime:
+    """Neo4j DateTime / ISO string / native datetime → aware datetime."""
+    if value is None:
+        return datetime.now(timezone.utc)
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    to_native = getattr(value, "to_native", None)
+    if callable(to_native):
+        native = to_native()
+        if isinstance(native, datetime):
+            return native if native.tzinfo else native.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
+
+
 class Neo4jSocialRepository:
     """BE2 Neo4j writes limited to labels/relationships in SYSTEM_DATA.md."""
 
@@ -135,14 +155,34 @@ class Neo4jSocialRepository:
 
     async def get_post(self, bai_dang_id: str) -> SocialPost | None:
         platform, external_id = bai_dang_id.split(":", 1)
-        query = "MATCH (b:BaiDang {platform: $platform, external_id: $external_id}) RETURN b"
+        query = """
+        MATCH (b:BaiDang {platform: $platform})
+        WHERE toString(b.external_id) = $external_id
+        RETURN b LIMIT 1
+        """
         async with self.driver.session() as session:
-            result = await session.run(query, platform=platform, external_id=external_id)
+            result = await session.run(query, platform=platform, external_id=str(external_id))
             record = await result.single()
         if not record:
             return None
         data = dict(record["b"])
-        return SocialPost(platform=data["platform"], external_id=data["external_id"], noi_dung=data["noi_dung"], tac_gia_hash=data.get("tac_gia_hash"), url=data.get("url"), thoi_gian=data.get("thoi_gian") or datetime.now(timezone.utc))
+        noi = str(data.get("noi_dung") or data.get("comment_text") or "").strip()
+        if not noi:
+            return None
+        return SocialPost(
+            platform=str(data.get("platform") or platform),
+            external_id=str(data.get("external_id") or external_id),
+            noi_dung=noi,
+            tac_gia_hash=str(data["tac_gia_hash"]) if data.get("tac_gia_hash") is not None else None,
+            url=str(data["url"]) if data.get("url") else None,
+            thoi_gian=_coerce_datetime(
+                data.get("thoi_gian") or data.get("ngay_dang") or data.get("ingested_at")
+            ),
+            source_metadata={
+                "chu_de": data.get("chu_de"),
+                "source_topic": data.get("source_topic") or data.get("chu_de"),
+            },
+        )
 
     async def save_topic(self, result: TopicResult) -> None:
         if not result.slug:
@@ -150,7 +190,8 @@ class Neo4jSocialRepository:
         platform, external_id = result.bai_dang_id.split(":", 1)
         slug = topic_slug(result.slug) or result.slug
         query = """
-        MATCH (b:BaiDang {platform: $platform, external_id: $external_id})
+        MATCH (b:BaiDang {platform: $platform})
+        WHERE toString(b.external_id) = $external_id
         MERGE (c:ChuDe {slug: $slug})
         SET c.ten = coalesce(c.ten, $slug)
         SET b.chu_de = coalesce(b.chu_de, $slug)
@@ -158,28 +199,54 @@ class Neo4jSocialRepository:
         SET r.score = $score, r.model = $model, r.status = $status
         """
         async with self.driver.session() as session:
-            result_cursor = await session.run(query, platform=platform, external_id=external_id, slug=slug, score=result.score, model=result.model, status=result.status)
+            result_cursor = await session.run(
+                query,
+                platform=platform,
+                external_id=str(external_id),
+                slug=slug,
+                score=result.score,
+                model=result.model,
+                status=result.status,
+            )
             await result_cursor.consume()
 
     async def get_topic(self, bai_dang_id: str) -> TopicResult | None:
         platform, external_id = bai_dang_id.split(":", 1)
         query = """
-        MATCH (b:BaiDang {platform: $platform, external_id: $external_id})-[r:THAO_LUAN_VE]->(c:ChuDe)
-        RETURN c.slug AS slug, r.score AS score, r.status AS status, r.model AS model
-        ORDER BY r.score DESC LIMIT 1
+        MATCH (b:BaiDang)
+        WHERE b.platform = $platform AND toString(b.external_id) = $external_id
+        OPTIONAL MATCH (b)-[r:THAO_LUAN_VE]->(c:ChuDe)
+        WITH b, c, r
+        ORDER BY coalesce(r.score, 0) DESC
+        LIMIT 1
+        RETURN coalesce(c.slug, b.chu_de, b.source_topic) AS slug,
+               coalesce(r.score, 1.0) AS score,
+               coalesce(r.status, 'classified') AS status,
+               coalesce(r.model, 'bai_dang_chu_de') AS model
         """
         async with self.driver.session() as session:
-            result = await session.run(query, platform=platform, external_id=external_id)
+            result = await session.run(query, platform=platform, external_id=str(external_id))
             record = await result.single()
-        if not record:
+        if not record or not record.get("slug"):
             return None
-        return TopicResult(bai_dang_id=bai_dang_id, slug=record["slug"], score=float(record["score"]), status=record["status"], model=record["model"])
+        slug = topic_slug(str(record["slug"])) or str(record["slug"])
+        status = record.get("status")
+        if status not in {"classified", "needs_review", "unknown"}:
+            status = "classified"
+        return TopicResult(
+            bai_dang_id=bai_dang_id,
+            slug=slug,
+            score=min(1.0, max(0.0, float(record.get("score") or 1.0))),
+            status=status,
+            model=str(record.get("model") or "bai_dang_chu_de"),
+        )
 
     async def create_link_edge(self, bai_dang_id: str, candidate: LinkCandidate, *, method: str) -> None:
         platform, external_id = bai_dang_id.split(":", 1)
         # Do not require ChuDe-[:LIEN_QUAN]->Khoan beforehand — MERGE it when ChuDe exists.
         query = """
-        MATCH (b:BaiDang {platform: $platform, external_id: $external_id})
+        MATCH (b:BaiDang {platform: $platform})
+        WHERE toString(b.external_id) = $external_id
         MATCH (k:Khoan {khoan_id: $khoan_id})
         OPTIONAL MATCH (b)-[:THAO_LUAN_VE]->(c:ChuDe)
         FOREACH (_ IN CASE WHEN c IS NULL THEN [] ELSE [1] END |
@@ -192,7 +259,7 @@ class Neo4jSocialRepository:
             result = await session.run(
                 query,
                 platform=platform,
-                external_id=external_id,
+                external_id=str(external_id),
                 khoan_id=candidate.khoan_id,
                 score=candidate.score,
                 method=method,
@@ -212,7 +279,8 @@ class Neo4jSocialRepository:
     async def save_nli(self, bai_dang_id: str, khoan_id: str, result: NliResult, *, claim_text: str, evidence_span: str) -> str:
         platform, external_id = bai_dang_id.split(":", 1)
         query = """
-        MATCH (b:BaiDang {platform: $platform, external_id: $external_id})
+        MATCH (b:BaiDang {platform: $platform})
+        WHERE toString(b.external_id) = $external_id
         MATCH (k:Khoan {khoan_id: $khoan_id})
         MERGE (y:YKien {uuid: $uuid})
         SET y.bai_dang_id = $bai_dang_id,
@@ -228,7 +296,19 @@ class Neo4jSocialRepository:
         claim_hash = str(uuid5(NAMESPACE_URL, f"{bai_dang_id}:{khoan_id}:{claim_text}:{evidence_span}"))
         ykien_uuid = str(uuid5(NAMESPACE_URL, f"be2:ykien:{claim_hash}"))
         async with self.driver.session() as session:
-            result_cursor = await session.run(query, platform=platform, external_id=external_id, khoan_id=khoan_id, bai_dang_id=bai_dang_id, uuid=ykien_uuid, claim_hash=claim_hash, claim_text=claim_text, evidence_span=evidence_span, label=result.label.value, score=result.score)
+            result_cursor = await session.run(
+                query,
+                platform=platform,
+                external_id=str(external_id),
+                khoan_id=khoan_id,
+                bai_dang_id=bai_dang_id,
+                uuid=ykien_uuid,
+                claim_hash=claim_hash,
+                claim_text=claim_text,
+                evidence_span=evidence_span,
+                label=result.label.value,
+                score=result.score,
+            )
             await result_cursor.consume()
         return ykien_uuid
 

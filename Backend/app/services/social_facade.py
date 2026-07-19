@@ -350,18 +350,31 @@ class SocialAlertFacade:
 
         alerts_made = sum(1 for c in chain_results if c.get("alert"))
         claims = sum(int(c.get("claims") or 0) for c in chain_results)
+        stage_errs = [
+            e
+            for c in chain_results
+            for e in (c.get("errors") or [])
+        ]
+        sample_err = None
+        if errors:
+            sample_err = errors[0].get("message")
+        elif stage_errs:
+            sample_err = stage_errs[0].get("message") or stage_errs[0].get("code") or str(stage_errs[0])
         status = "success" if chain_results and not errors else ("partial" if chain_results else "failed")
+        msg = (
+            f"Đã xử lý {len(chain_results)}/{len(ids)} bài cũ: "
+            f"{claims} đối chiếu DOI_CHIEU, {alerts_made} cảnh báo mới."
+        )
+        if sample_err and claims == 0:
+            msg += f" Lỗi mẫu: {sample_err}"
         return {
             "status": status,
-            "message": (
-                f"Đã xử lý {len(chain_results)}/{len(ids)} bài cũ: "
-                f"{claims} đối chiếu DOI_CHIEU, {alerts_made} cảnh báo mới."
-            ),
+            "message": msg,
             "processed": len(chain_results),
             "planned": len(ids),
             "claims": claims,
             "alerts_created": alerts_made,
-            "errors": errors,
+            "errors": errors[:20] + [{"stage_errors_sample": stage_errs[:5]}] if stage_errs else errors[:20],
             "items": chain_results[:50],
         }
 

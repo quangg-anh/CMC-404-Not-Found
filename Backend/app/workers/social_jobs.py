@@ -68,18 +68,49 @@ async def alert_fanout(ctx: dict, envelope: dict) -> dict:
     return JobResult(job_id=job.job_id, status="success" if alert else "skipped", data={"alert": alert}).model_dump()
 
 
-async def _resolve_topic(ctx: dict, *, bai_dang_id: str, content: str) -> TopicResult | None:
-    """Prefer crawl-linked ChuDe; fall back to classifier."""
+async def _resolve_topic(ctx: dict, *, bai_dang_id: str, content: str, post: Any | None = None) -> TopicResult | None:
+    """Prefer crawl-linked ChuDe / BaiDang.chu_de; fall back to classifier or monitor topics."""
+    from app.adapters.neo4j_social import topic_slug as make_slug
+
     topic = await ctx["social_repo"].get_topic(bai_dang_id)
     if topic and topic.slug:
         return topic
+    meta = getattr(post, "source_metadata", None) or {}
+    for key in ("source_topic", "chu_de"):
+        slug = make_slug(meta.get(key)) if isinstance(meta, dict) else None
+        if slug:
+            result = TopicResult(
+                bai_dang_id=bai_dang_id,
+                slug=slug,
+                score=1.0,
+                status="classified",
+                model="bai_dang_metadata",
+            )
+            await ctx["social_repo"].save_topic(result)
+            return result
     classifier = ctx.get("topic_classifier")
-    if not classifier:
-        return topic
-    result = await classifier.classify(bai_dang_id=bai_dang_id, content=content)
-    if result.slug:
-        await ctx["social_repo"].save_topic(result)
-        return await ctx["social_repo"].get_topic(bai_dang_id) or result
+    if classifier:
+        try:
+            result = await classifier.classify(bai_dang_id=bai_dang_id, content=content)
+            if result.slug:
+                await ctx["social_repo"].save_topic(result)
+                return await ctx["social_repo"].get_topic(bai_dang_id) or result
+        except Exception:  # noqa: BLE001
+            pass
+    cfg = ctx.get("config")
+    seeds = list(getattr(cfg, "social_monitor_topics", None) or [])
+    if seeds:
+        slug = make_slug(seeds[0])
+        if slug:
+            result = TopicResult(
+                bai_dang_id=bai_dang_id,
+                slug=slug,
+                score=1.0,
+                status="classified",
+                model="monitor_topic_fallback",
+            )
+            await ctx["social_repo"].save_topic(result)
+            return result
     return topic
 
 
@@ -260,13 +291,17 @@ async def _chain_social_review(ctx: dict, *, bai_dang_id: str, dry_run: bool) ->
         "alert": None,
         "errors": [],
     }
-    post = await ctx["social_repo"].get_post(bai_dang_id)
+    try:
+        post = await ctx["social_repo"].get_post(bai_dang_id)
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append({"stage": "load_post", "message": str(exc)})
+        return summary
     if post is None:
         summary["errors"].append({"stage": "load_post", "code": "post_not_found"})
         return summary
 
     try:
-        topic = await _resolve_topic(ctx, bai_dang_id=bai_dang_id, content=post.noi_dung)
+        topic = await _resolve_topic(ctx, bai_dang_id=bai_dang_id, content=post.noi_dung, post=post)
         if topic is None or not topic.slug:
             summary["errors"].append({"stage": "topic", "code": "missing_topic"})
             return summary
@@ -283,6 +318,9 @@ async def _chain_social_review(ctx: dict, *, bai_dang_id: str, dry_run: bool) ->
         summary["topic"] = topic.model_dump()
     except BE2Error as exc:
         summary["errors"].append({"stage": "topic", "error": exc.to_dict()})
+        return summary
+    except Exception as exc:  # noqa: BLE001
+        summary["errors"].append({"stage": "topic", "message": str(exc)})
         return summary
 
     proposed_ids: list[str] = []
