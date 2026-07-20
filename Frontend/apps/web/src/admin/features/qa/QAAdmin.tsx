@@ -1,16 +1,11 @@
-﻿import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { PaperPlaneRight, User, Robot, ShieldCheck, WarningCircle, CaretRight, Path, Sparkle, Database, Quotes, Trash } from '@phosphor-icons/react';
 import { CitationCard } from '../../../../../../packages/ui-legal/src/components/CitationCard';
 import { AnswerMarkdown } from '../../../../../../packages/ui-legal/src/components/AnswerMarkdown';
 import { apiPost } from '../../../lib/api';
-
-interface BackendCitation {
-  khoan_id?: string;
-  quote: string;
-  van_ban: string;
-  dieu: string;
-  score?: number;
-}
+import { LegalHistoryPanel } from '../../../components/LegalHistoryPanel';
+import { normalizeQAResponse } from '../../../lib/qaContract';
+import type { NormalizedCitation } from '../../../lib/qaContract';
 
 interface GraphNode {
   id: string;
@@ -31,24 +26,19 @@ interface GraphPath {
   edges?: GraphEdge[];
 }
 
-interface QAResponse {
-  answer: string;
-  citations: BackendCitation[];
-  graph_paths: GraphPath[];
-  confidence: 'high' | 'medium' | 'low';
-  unverified?: boolean;
-  degraded?: boolean;
-  refuse_reason?: string[];
-}
-
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  citations?: BackendCitation[];
+  citations?: NormalizedCitation[];
   confidence?: 'high' | 'medium' | 'low';
   unverified?: boolean;
   refuseReason?: string[];
+  refused?: boolean;
+  refusalMessage?: string;
+  reasonCode?: string;
+  asOf?: string;
+  contractVersion?: 'v1' | 'v2';
   isTyping?: boolean;
   graphPaths?: GraphPath[];
 }
@@ -122,6 +112,7 @@ export default function QAAdminPage() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [historyCitation, setHistoryCitation] = useState<NormalizedCitation | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -142,11 +133,26 @@ export default function QAAdminPage() {
     setMessages((prev) => [...prev, { id: typingId, role: 'assistant', content: '', isTyping: true }]);
 
     try {
-      const data = await apiPost<QAResponse>('/admin/qa/ask', { question, graph_paths_enabled: true, audience: 'admin' });
+      const raw = await apiPost<unknown>('/admin/qa/ask', { question, graph_paths_enabled: true, audience: 'admin' });
+      const data = normalizeQAResponse(raw);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === typingId
-            ? { id: typingId, role: 'assistant', content: data.answer, citations: data.citations ?? [], confidence: data.confidence, graphPaths: data.graph_paths, unverified: Boolean(data.unverified || data.degraded), refuseReason: data.refuse_reason }
+            ? {
+                id: typingId,
+                role: 'assistant',
+                content: data.answer,
+                citations: data.citations,
+                confidence: data.confidence,
+                graphPaths: data.graphPaths as GraphPath[],
+                unverified: data.unverified || data.degraded,
+                refuseReason: data.refuseReasons,
+                refused: data.refused,
+                refusalMessage: data.refusalMessage,
+                reasonCode: data.reasonCode,
+                asOf: data.asOf,
+                contractVersion: data.contractVersion,
+              }
             : m,
         ),
       );
@@ -230,6 +236,11 @@ export default function QAAdminPage() {
                   msg.content
                 )}
               </div>
+              {msg.role === 'assistant' && !msg.isTyping && msg.asOf && msg.id !== 'welcome' && (
+                <div className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-bold text-blue-700">
+                  Luật tại ngày {new Date(`${msg.asOf}T00:00:00`).toLocaleDateString('vi-VN')} · {msg.contractVersion === 'v2' ? 'Citation v2' : 'Citation v1'}
+                </div>
+              )}
               {msg.citations && msg.citations.length > 0 && (
                 <div className="mt-1 w-full space-y-4 rounded-[26px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-4 shadow-[0_18px_50px_rgba(16,185,129,0.10)] md:min-w-[620px]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -246,7 +257,28 @@ export default function QAAdminPage() {
                   </div>
                   <div className="grid gap-3">
                     {msg.citations.map((cit, idx) => (
-                      <CitationCard key={idx} van_ban={cit.van_ban} dieu={cit.dieu} quote={cit.quote} khoan_id={cit.khoan_id} />
+                      <CitationCard
+                        key={cit.citationId ?? cit.nodeId ?? idx}
+                        van_ban={cit.documentNumber}
+                        document_number={cit.documentNumber}
+                        dieu={cit.article ? `Điều ${cit.article}` : ''}
+                        article={cit.article}
+                        clause={cit.clause}
+                        point={cit.point}
+                        quote={cit.quote}
+                        khoan_id={cit.khoanId}
+                        node_id={cit.nodeId}
+                        lineage_id={cit.lineageId}
+                        level={cit.level}
+                        effective_from={cit.effectiveFrom}
+                        effective_to={cit.effectiveTo}
+                        as_of={cit.asOf}
+                        support_status={cit.supportStatus}
+                        entailment_score={cit.entailmentScore}
+                        validation_source={cit.validationSource}
+                        supports_claim_ids={cit.supportsClaimIds}
+                        onOpenTimeline={cit.nodeId || cit.lineageId ? () => setHistoryCitation(cit) : undefined}
+                      />
                     ))}
                   </div>
                 </div>
@@ -261,9 +293,9 @@ export default function QAAdminPage() {
                       <WarningCircle size={18} weight="fill" />
                     </div>
                     <div>
-                      <div className="text-sm font-black">Chưa có căn cứ pháp lý xác thực</div>
+                      <div className="text-sm font-black">{msg.refused ? 'Câu trả lời đã bị từ chối an toàn' : 'Chưa có căn cứ pháp lý xác thực'}</div>
                       <p className="mt-1 text-xs font-semibold leading-6 text-amber-800">
-                        Hệ thống chưa tìm thấy điều/khoản/số văn bản phù hợp trong dữ liệu đã nạp. Câu trả lời chỉ là tham khảo, không nên dùng để kết luận mức tiền, điều kiện hưởng, xử phạt hoặc nghĩa vụ pháp lý.
+                        {msg.refusalMessage ?? 'Hệ thống chưa tìm thấy điều/khoản/số văn bản phù hợp trong dữ liệu đã nạp. Nội dung này không nên dùng để kết luận mức tiền, điều kiện hưởng, xử phạt hoặc nghĩa vụ pháp lý.'}
                       </p>
                       {msg.refuseReason && msg.refuseReason.length > 0 && (
                         <div className="mt-2 rounded-2xl border border-amber-200 bg-white/70 px-3 py-2 text-[11px] font-mono text-amber-700">
@@ -302,6 +334,11 @@ export default function QAAdminPage() {
         </div>
         <p className="mx-auto mt-2 max-w-5xl text-[11px] font-medium text-slate-400">Enter để gửi, Shift + Enter để xuống dòng.</p>
       </form>
+      <LegalHistoryPanel
+        citation={historyCitation}
+        audience="admin"
+        onClose={() => setHistoryCitation(null)}
+      />
     </div>
   );
 }

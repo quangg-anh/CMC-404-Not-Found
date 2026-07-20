@@ -8,7 +8,7 @@ from arq.connections import RedisSettings
 from app.config import BE2Config, get_config
 from app.workers.content_jobs import brief_generate, daily_news_briefs, suggest_generate
 from app.workers.legal_jobs import legal_ingest, legal_extract
-from app.workers.social_jobs import alert_fanout, daily_social_monitor, social_claim, social_ingest, social_link, social_topic
+from app.workers.social_jobs import alert_fanout, daily_news_monitor, daily_social_monitor, social_claim, social_ingest, social_link, social_topic
 
 BE2_WORKER_FUNCTIONS = [
     social_ingest,
@@ -17,6 +17,7 @@ BE2_WORKER_FUNCTIONS = [
     social_claim,
     alert_fanout,
     daily_social_monitor,
+    daily_news_monitor,
     brief_generate,
     suggest_generate,
     daily_news_briefs,
@@ -101,6 +102,8 @@ def cron_jobs(config: BE2Config | None = None) -> list:
         jobs.append(cron(daily_social_monitor, hour=cfg.social_monitor_cron_hour, minute=cfg.social_monitor_cron_minute, name="daily_social_monitor"))
     if cfg.news_brief_enabled:
         jobs.append(cron(daily_news_briefs, hour=cfg.news_brief_cron_hour, minute=cfg.news_brief_cron_minute, name="daily_news_briefs"))
+    if cfg.news_monitor_enabled:
+        jobs.append(cron(daily_news_monitor, hour=cfg.news_monitor_cron_hour, minute=cfg.news_monitor_cron_minute, name="daily_news_monitor"))
     return jobs
 
 

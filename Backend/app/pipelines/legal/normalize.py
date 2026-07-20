@@ -46,13 +46,17 @@ def generate_van_ban_id(so_hieu_norm: str, ngay_ban_hanh: str) -> str:
     # Trả về 16 ký tự đầu của mã băm SHA-256 để làm ID tối ưu
     return hashlib.sha256(raw_str.encode('utf-8')).hexdigest()[:16]
 
+def generate_dieu_id(so_hieu_norm: str, dieu: str | int) -> str:
+    """Sinh canonical ID cho một Điều."""
+    return f"{so_hieu_norm}::D{str(dieu).strip()}"
+
 def generate_khoan_id(so_hieu_norm: str, dieu: str | int, khoan: str | int) -> str:
     """
     Sinh Canonical ID cho một 'Khoản'.
     Dựa trên quy ước Data/SYSTEM_DATA.md: {so_hieu_norm}::D{dieu}.K{khoan}
     Ví dụ: "15/2020/ND-CP::D1.K2"
     """
-    return f"{so_hieu_norm}::D{dieu}.K{khoan}"
+    return f"{generate_dieu_id(so_hieu_norm, dieu)}.K{str(khoan).strip()}"
 
 def generate_diem_id(khoan_id: str, ky_hieu_diem: str) -> str:
     """

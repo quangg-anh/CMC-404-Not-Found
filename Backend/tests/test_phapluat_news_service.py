@@ -2,13 +2,29 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.phapluat_news_service import PhapLuatNewsService, _reader_url
+from app.services.phapluat_news_service import NewsItem, PhapLuatNewsService, _reader_url
 
 
 def test_reader_url_does_not_double_scheme() -> None:
     url = "https://phapluat.gov.vn/tin-tuc"
     assert _reader_url(url) == "https://r.jina.ai/https://phapluat.gov.vn/tin-tuc"
     assert "http://https://" not in _reader_url(url)
+
+
+def test_news_item_maps_to_shared_monitor_payload() -> None:
+    item = NewsItem(
+        title="Chính sách thuế mới",
+        url="https://phapluat.gov.vn/tin-tuc/chinh-sach-moi/article-1",
+        topic="thuế",
+        published_text="19/07/2026 08:30",
+        body="Doanh nghiệp cần lưu ý quy định mới.",
+    )
+    payload = item.as_monitor_payload()
+    assert payload["platform"] == "news"
+    assert payload["source_type"] == "news"
+    assert payload["provider"] == "phapluat.gov.vn"
+    assert payload["published_at"].startswith("2026-07-19T08:30:00")
+    assert "Chính sách thuế mới" in payload["content"]
 
 
 @pytest.mark.asyncio

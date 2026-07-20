@@ -14,22 +14,15 @@ import { SUGGESTIONS } from './CitizenChrome';
 import { AnswerMarkdown } from '../../../../../packages/ui-legal/src/components/AnswerMarkdown';
 import { CitationCard } from '../../../../../packages/ui-legal/src/components/CitationCard';
 import { HonestyBanner } from '../../../../../packages/ui-legal/src/components/HonestyBanner';
-
-type BackendCitation = {
-  khoan_id?: string;
-  quote?: string;
-  van_ban?: string;
-  dieu?: string;
-  khoan?: string;
-  ref?: string;
-};
+import { normalizeQAResponse } from '../../lib/qaContract';
+import type { NormalizedCitation } from '../../lib/qaContract';
 
 type PanelMsg = {
   id: string;
   role: 'user' | 'ai';
   content: string;
   isError?: boolean;
-  citations?: BackendCitation[];
+  citations?: NormalizedCitation[];
   confidence?: 'high' | 'medium' | 'low';
   unverified?: boolean;
   degraded?: boolean;
@@ -98,19 +91,10 @@ export function CitizenChatBubble() {
     }, 2000);
 
     try {
-      const data = await apiPost<{
-        answer?: string;
-        refuse_reason?: string[];
-        citations?: BackendCitation[];
-        confidence?: 'high' | 'medium' | 'low';
-        unverified?: boolean;
-        degraded?: boolean;
-        refused?: boolean;
-      }>('/citizen/qa/ask', { question });
-      const answer =
-        (data.answer || '').trim() ||
-        (data.refuse_reason?.length ? data.refuse_reason.join(' ') : 'Không nhận được câu trả lời.');
-      const citations = data.citations ?? [];
+      const rawResponse = await apiPost<unknown>('/citizen/qa/ask', { question });
+      const data = normalizeQAResponse(rawResponse);
+      const answer = data.answer || 'Không nhận được câu trả lời.';
+      const citations = data.citations;
       setMessages((m) =>
         m.map((msg) =>
           msg.id === typingId
@@ -120,9 +104,9 @@ export function CitizenChatBubble() {
                 content: answer,
                 citations,
                 confidence: data.confidence,
-                unverified: Boolean(data.unverified),
-                degraded: Boolean(data.degraded),
-                refused: Boolean(data.refused),
+                unverified: data.unverified,
+                degraded: data.degraded,
+                refused: data.refused,
               }
             : msg,
         ),
@@ -224,11 +208,25 @@ export function CitizenChatBubble() {
                         <div className="mt-2 space-y-2 border-t border-slate-100 pt-2">
                           {msg.citations.slice(0, 3).map((cit, idx) => (
                             <CitationCard
-                              key={`${cit.khoan_id || idx}`}
-                              van_ban={cit.van_ban || ''}
-                              dieu={cit.dieu || ''}
+                              key={cit.citationId ?? cit.nodeId ?? idx}
+                              van_ban={cit.documentNumber}
+                              document_number={cit.documentNumber}
+                              dieu={cit.article ? `Điều ${cit.article}` : ''}
+                              article={cit.article}
+                              clause={cit.clause}
+                              point={cit.point}
                               quote={cit.quote}
-                              khoan_id={cit.khoan_id}
+                              khoan_id={cit.khoanId}
+                              node_id={cit.nodeId}
+                              lineage_id={cit.lineageId}
+                              level={cit.level}
+                              effective_from={cit.effectiveFrom}
+                              effective_to={cit.effectiveTo}
+                              as_of={cit.asOf}
+                              support_status={cit.supportStatus}
+                              entailment_score={cit.entailmentScore}
+                              validation_source={cit.validationSource}
+                              supports_claim_ids={cit.supportsClaimIds}
                             />
                           ))}
                         </div>

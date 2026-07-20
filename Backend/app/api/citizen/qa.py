@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import get_neo4j_driver, get_qdrant_client, get_llm_router, get_embedder, get_redis
 from app.core.envelope import success_response
 from app.core.logging import get_request_id
-from app.services.qa_service import QAService
+from app.services.qa_factory import build_qa_service
 
 router = APIRouter(tags=["Citizen QA"])
 
@@ -29,7 +29,7 @@ async def ask_citizen_qa(
     embedder: Any = Depends(get_embedder),
     redis_pool: Any = Depends(get_redis),
 ) -> dict[str, Any]:
-    service = QAService(
+    service = build_qa_service(
         qdrant_client=qdrant,
         neo4j_driver=driver,
         llm_router=router_llm,

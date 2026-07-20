@@ -50,6 +50,7 @@ async def legal_ingest(ctx, job_id: str, payload: Dict[str, Any]):
             llm_router=llm_router,
             pool=pool,
             minio=minio,
+            config=ctx.get("config"),
         )
     except Exception as exc:  # noqa: BLE001
         await _set_job_status(pool, job_id, "error", str(exc))

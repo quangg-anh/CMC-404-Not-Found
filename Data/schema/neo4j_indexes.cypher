@@ -1,6 +1,6 @@
 // =========================================================
 // Neo4j indexes - toi uu truy van KG
-// Nguon: Data/SYSTEM_DATA.md §4.1
+// Contract: Data/schema/ontology.json; temporal rollout: docs/architecture/lawgic-core-execution-plan-v2.md
 // Ap dung:  cat neo4j_indexes.cypher | cypher-shell -u neo4j -p <pw>
 // Idempotent: IF NOT EXISTS.
 // =========================================================
@@ -42,6 +42,10 @@ CREATE INDEX baidang_thoi_gian IF NOT EXISTS
 // Tim kiem toan van tren noi dung Khoan (ho tro hybrid retrieve)
 CREATE FULLTEXT INDEX khoan_noidung_ft IF NOT EXISTS
   FOR (k:Khoan) ON EACH [k.noi_dung];
+
+// Immutable Dieu/Khoan/Diem v2 lexical source. Canonical text is hydrated after ranking.
+CREATE FULLTEXT INDEX legal_provision_text_ft IF NOT EXISTS
+  FOR (p:LegalProvision) ON EACH [p.noi_dung, p.tieu_de];
 
 // =========================================================
 // Phase B - MXH (Social)

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import logging
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -45,6 +47,22 @@ class NewsItem:
     topic: str
     published_text: str | None = None
     body: str | None = None
+
+    def as_monitor_payload(self) -> dict[str, Any]:
+        """Convert a scraped article to the shared news/social monitoring payload."""
+        provider = urlparse(self.url).hostname or "phapluat.gov.vn"
+        return {
+            "platform": "news",
+            "source_type": "news",
+            "provider": provider,
+            "source_domain": provider,
+            "external_id": hashlib.sha256(self.url.encode("utf-8")).hexdigest()[:24],
+            "content": "\n\n".join(part for part in (self.title, self.body) if part),
+            "title": self.title,
+            "url": self.url,
+            "published_at": _published_iso(self.published_text),
+            "source_topic": self.topic,
+        }
 
 
 class _LinkCollector(HTMLParser):
@@ -135,6 +153,18 @@ async def _fetch_article_body(client: httpx.AsyncClient, url: str, *, max_chars:
     return body or None
 
 
+def _published_iso(value: str | None) -> str | None:
+    if not value:
+        return None
+    for pattern in ("%d/%m/%Y %H:%M", "%d/%m/%Y"):
+        try:
+            parsed = datetime.strptime(value.strip(), pattern)
+            return parsed.replace(tzinfo=timezone(timedelta(hours=7))).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 class PhapLuatNewsService:
     """Fetch phapluat.gov.vn legal news and create draft briefs for selected topics."""
 
@@ -203,6 +233,10 @@ class PhapLuatNewsService:
                 if all(count >= limit_per_topic for count in counts.values()):
                     break
             return items
+
+    async def fetch_monitor_payloads(self, limit_per_topic: int = 5) -> list[dict[str, Any]]:
+        items = await self.fetch_items(limit_per_topic=limit_per_topic)
+        return [item.as_monitor_payload() for item in items]
 
     async def sync_briefs(self, *, user_id: str | None = None, limit_per_topic: int = 5) -> dict[str, Any]:
         items = await self.fetch_items(limit_per_topic=limit_per_topic)

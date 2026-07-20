@@ -137,3 +137,29 @@ class ParserLowConfidenceError(ParserFallbackError):
 class GraphPathsUnavailableError(TransientServiceError):
     """Neo4j is unreachable when resolving citation graph paths."""
     code = "graph_paths_unavailable"
+
+# ---------------------------------------------------------------------------
+# Temporal legal graph
+# ---------------------------------------------------------------------------
+
+class TemporalLawUnavailableError(TransientServiceError):
+    """Neo4j is unreachable while reading the temporal legal graph."""
+    code = "temporal_law_unavailable"
+
+
+class TemporalLawNotFoundError(PermanentServiceError):
+    """No visible legal provision exists for the requested identifier/date."""
+    code = "temporal_law_not_found"
+
+
+class TemporalDataIntegrityError(PermanentServiceError):
+    """Immutable temporal versions violate lineage or interval invariants."""
+    code = "temporal_data_integrity_error"
+
+# ---------------------------------------------------------------------------
+# Legal retrieval v2
+# ---------------------------------------------------------------------------
+
+class LegalRetrievalUnavailableError(TransientServiceError):
+    """A canonical retrieval source is unavailable."""
+    code = "legal_retrieval_unavailable"

@@ -151,18 +151,6 @@ class LegalParser:
             )
             needs_review = True
 
-        for dieu in tree:
-            if not dieu.get("khoan_list") and (dieu.get("noi_dung") or "").strip():
-                dieu["khoan_list"] = [
-                    {
-                        "loai": "Khoan",
-                        "so": "1",
-                        "noi_dung": (dieu.get("noi_dung") or "").strip(),
-                        "diem_list": [],
-                    }
-                ]
-                dieu["noi_dung"] = ""
-            
         return tree, needs_review
 
     async def fallback_llm_parse(self, text: str, *, llm_router: Any, document_metadata: dict | None = None, request_id: str | None = None) -> Tuple[List[Dict[str, Any]], bool]:

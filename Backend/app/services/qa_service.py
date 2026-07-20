@@ -10,6 +10,7 @@ from datetime import date
 from typing import Any
 
 from app.schemas import CandidateKhoan, Citation
+from app.domain.citation_contract import CitationContractV2, QAAnswerStatus
 from app.services.citation_validator import CitationValidator
 from app.intelligence.llm_router import LLMRouter
 from app.intelligence.embedder import Embedder
@@ -66,6 +67,7 @@ class QAService:
         embedder: Embedder | None = None,
         redis_pool: Any | None = None,
         nli: NLIService | None = None,
+        legal_qa_v2_service: Any | None = None,
     ) -> None:
         self.qdrant = qdrant_client
         self.driver = neo4j_driver
@@ -77,6 +79,7 @@ class QAService:
         # AI's own answer is actually ENTAILED by its citations (not merely that the quote exists).
         # Default is the offline heuristic NLI, so this adds no external dependency.
         self.nli = nli or NLIService()
+        self.legal_qa_v2 = legal_qa_v2_service
 
     # Explicit legal references a user may type directly into the question.
     # Khoản/Điều id, e.g. "01/2016/NQ-HDND::D1.K2" or "03-VBHN-BTC||12-02-2026::D40".
@@ -1349,6 +1352,38 @@ class QAService:
     ) -> dict[str, Any]:
         """Execute strictly real RAG QA flow: Retrieve -> Time-Travel filter -> LLM -> Citation Verify -> Fail-Closed output."""
         as_of_val = (as_of or date.today().isoformat()).strip()
+        cfg = get_config()
+        if cfg.qa_citation_v2:
+            if not (cfg.legal_provision_v2_read and cfg.temporal_law_v2):
+                try:
+                    requested_date = date.fromisoformat(as_of_val)
+                except ValueError as exc:
+                    from app.exceptions import ValidationError
+
+                    raise ValidationError("as_of must be an ISO date (YYYY-MM-DD)") from exc
+                return CitationContractV2(
+                    status=QAAnswerStatus.REFUSED,
+                    as_of=requested_date,
+                    reason_code="citation_v2_dependencies_disabled",
+                ).model_dump(mode="json")
+            try:
+                requested_date = date.fromisoformat(as_of_val)
+            except ValueError as exc:
+                from app.exceptions import ValidationError
+
+                raise ValidationError("as_of must be an ISO date (YYYY-MM-DD)") from exc
+            if self.legal_qa_v2 is None:
+                return CitationContractV2(
+                    status=QAAnswerStatus.REFUSED,
+                    as_of=requested_date,
+                    reason_code="citation_v2_service_unavailable",
+                ).model_dump(mode="json")
+            contract = await self.legal_qa_v2.answer(
+                question,
+                audience=audience,
+                as_of=requested_date,
+            )
+            return contract.model_dump(mode="json")
 
         cached = await self._cache_get(question, as_of_val, audience)
         if cached:

@@ -26,6 +26,17 @@ router = APIRouter(tags=["Admin Legal"], dependencies=[Depends(require_admin())]
 class IngestLegalRequest(BaseModel):
     so_hieu: str = Field(..., description="Số hiệu văn bản, ví dụ: 15/2020/NĐ-CP")
     ten: str | None = Field(default=None, description="Tên văn bản")
+    loai: str | None = Field(default=None, description="Luật, nghị định, thông tư...")
+    ngay_ban_hanh: str | None = Field(default=None, description="Ngày ban hành ISO YYYY-MM-DD")
+    ngay_hieu_luc: str | None = Field(default=None, description="Ngày hiệu lực ISO YYYY-MM-DD")
+    trang_thai: str = Field(default="hieu_luc", description="Trạng thái văn bản")
+    visibility: str = Field(default="public", pattern="^(public|internal)$")
+    co_quan_ban_hanh: str | None = None
+    logical_vb_id: str | None = Field(
+        default=None,
+        description="Lineage văn bản logic; bỏ trống khi ingest phiên bản đầu",
+    )
+    version_no: int = Field(default=1, ge=1)
     url_or_content: str | None = Field(default=None, description="URL hoặc nội dung text văn bản")
     file_ids: list[str] = Field(default_factory=list, description="Danh sách ID file đính kèm đã upload")
     run_ner: bool | None = Field(

@@ -19,11 +19,11 @@ from app.pipelines.social.collectors import FacebookGraphCollector, ForumFeedCol
 from app.pipelines.social.entity_link import EntityLinker
 from app.pipelines.social.alert_signal import AlertSignalService
 from app.pipelines.social.claim_check import ClaimChecker
-from app.pipelines.social.ingest import normalize_social_payload
-from app.schemas import BriefDraft, CandidateKhoan, Citation, NliLabel, Status, SuggestDraft, TopicResult, LinkPreview, LinkCandidate
+from app.pipelines.social.ingest import content_item_from_social_post, normalize_social_payload
+from app.schemas import BriefDraft, CandidateKhoan, Citation, ContentSourceType, NliLabel, Status, SuggestDraft, TopicResult, LinkPreview, LinkCandidate
 from app.workers.arq_settings import BE2_WORKER_FUNCTIONS, cron_jobs, redis_settings
 from app.workers.content_jobs import JOB_NAMES as CONTENT_JOB_NAMES
-from app.workers.social_jobs import JOB_NAMES as SOCIAL_JOB_NAMES, daily_social_monitor
+from app.workers.social_jobs import JOB_NAMES as SOCIAL_JOB_NAMES, daily_news_monitor, daily_social_monitor
 
 
 class SimpleOut(BaseModel):
@@ -396,6 +396,44 @@ def test_daily_social_monitor_cron_enabled_and_disabled():
     assert cron_jobs(BE2Config(social_monitor_enabled=False)) == []
     jobs = cron_jobs(BE2Config(social_monitor_enabled=True, social_monitor_cron_hour=7, social_monitor_cron_minute=30))
     assert len(jobs) == 1
+    news_jobs = cron_jobs(BE2Config(social_monitor_enabled=False, news_monitor_enabled=True))
+    assert len(news_jobs) == 1
+
+
+@pytest.mark.asyncio
+async def test_daily_news_monitor_ingests_shared_payload_contract():
+    class NewsService:
+        async def fetch_monitor_payloads(self, limit_per_topic):
+            return [{
+                "platform": "news",
+                "source_type": "news",
+                "provider": "news.example",
+                "external_id": "article-1",
+                "content": "A legal news claim.",
+                "url": "https://news.example/article-1",
+            }]
+
+    class IngestService:
+        async def ingest(self, payload):
+            return normalize_social_payload(payload)
+
+    result = await daily_news_monitor(
+        {
+            "config": BE2Config(social_monitor_enabled=False, news_monitor_enabled=True),
+            "phapluat_news_service": NewsService(),
+            "social_ingest_service": IngestService(),
+        },
+        {
+            "job_id": "news-monitor",
+            "correlation_id": "news-monitor",
+            "payload": {"chain": False},
+            "dry_run": False,
+        },
+    )
+    assert result["status"] == "success"
+    assert result["data"]["collected"] == 1
+    assert result["data"]["ingested"][0]["platform"] == "news"
+    assert result["data"]["chain"] == []
 
 @pytest.mark.asyncio
 async def test_facebook_collector_uses_graph_api_contract():
@@ -517,7 +555,13 @@ async def test_daily_social_monitor_dry_run_collects_without_ingest():
 async def test_daily_social_monitor_ingests_then_chains_topic_link_alert():
     class FakeCollector:
         async def collect(self, topics, *, limit_per_topic=None):
-            return [{"platform": "youtube", "external_id": "comment-1", "content": "nội dung về thuế", "author_id": "a"}]
+            return [{
+                "platform": "youtube",
+                "external_id": "comment-1",
+                "content": "Doanh nghiệp không phải kê khai đúng hạn.",
+                "url": "https://youtube.example/watch?v=1&lc=comment-1",
+                "author_id": "a",
+            }]
 
     class FakeIngestService:
         async def ingest(self, payload):
@@ -527,13 +571,31 @@ async def test_daily_social_monitor_ingests_then_chains_topic_link_alert():
         def __init__(self):
             self.post = None
             self.topic = None
-            self.alert_calls = []
+            self.saved_nli = []
+            self.saved_alerts = []
+
         async def get_post(self, bai_dang_id):
             return self.post
+
         async def save_topic(self, result):
             self.topic = result
-        async def get_topic(self, bai_dang_id):
-            return self.topic
+
+        async def save_nli(self, bai_dang_id, khoan_id, result, *, claim_text, evidence_span):
+            self.saved_nli.append({
+                "bai_dang_id": bai_dang_id,
+                "khoan_id": khoan_id,
+                "result": result,
+                "claim_text": claim_text,
+                "evidence_span": evidence_span,
+            })
+            return "ykien-1"
+
+        async def find_recent_alert(self, key, cooldown_s):
+            return None
+
+        async def save_alert(self, alert):
+            self.saved_alerts.append(alert)
+            return "alert-1"
 
     class Classifier:
         async def classify(self, *, bai_dang_id, content):
@@ -543,9 +605,26 @@ async def test_daily_social_monitor_ingests_then_chains_topic_link_alert():
         async def preview(self, *, bai_dang_id, content, topic, dry_run=True):
             return LinkPreview(bai_dang_id=bai_dang_id, candidates=[], proposed_edges=[LinkCandidate(khoan_id="k1", score=0.8)], dry_run=dry_run, status="ok")
 
-    class AlertService:
-        async def maybe_create_alert(self, *, signals, dry_run=False):
-            return None
+    class LegalRepo:
+        async def get_khoan_many(self, khoan_ids):
+            return [CandidateKhoan(khoan_id="k1", noi_dung="Doanh nghiệp phải kê khai đúng hạn.")]
+
+    class Checker:
+        async def check_claims_against_provisions(self, *, post_content, provisions):
+            return [{
+                "claim": {
+                    "text": "Doanh nghiệp không phải kê khai đúng hạn.",
+                    "evidence_span": "Doanh nghiệp không phải kê khai đúng hạn.",
+                },
+                "khoan_id": "k1",
+                "legal_text": provisions[0].noi_dung,
+                "nli": {
+                    "label": "mau_thuan",
+                    "score": 0.95,
+                    "model": "fake-nli",
+                    "needs_review": False,
+                },
+            }]
 
     repo = ChainRepo()
     ingest = FakeIngestService()
@@ -557,22 +636,53 @@ async def test_daily_social_monitor_ingests_then_chains_topic_link_alert():
         return post
 
     ingest.ingest = ingest_and_store
+    config = BE2Config(
+        social_monitor_topics=["thuế"],
+        alert_volume_threshold=1,
+        nli_confidence_threshold=0.7,
+    )
     result = await daily_social_monitor(
         {
-            "config": BE2Config(social_monitor_topics=["thuế"]),
+            "config": config,
             "social_daily_monitor": SocialDailyMonitor([FakeCollector()]),
             "social_ingest_service": ingest,
             "social_repo": repo,
             "topic_classifier": Classifier(),
             "entity_linker": Linker(),
-            "alert_signal_service": AlertService(),
+            "legal_repo": LegalRepo(),
+            "claim_checker": Checker(),
+            "alert_signal_service": AlertSignalService(repo, config),
         },
         {"job_id": "chain", "correlation_id": "chain", "payload": {"topics": ["thuế"], "limit_per_topic": 1, "chain": True}, "dry_run": False},
     )
     assert result["status"] == "success"
-    assert result["data"]["chain"][0]["topic"]["slug"] == "thue"
-    assert result["data"]["chain"][0]["link"]["proposed_edges"][0]["khoan_id"] == "k1"
-    assert result["data"]["chain"][0]["alert"] is None
+    chain = result["data"]["chain"][0]
+    assert chain["topic"]["slug"] == "thue"
+    assert chain["link"]["proposed_edges"][0]["khoan_id"] == "k1"
+    assert chain["checks"][0]["nli"]["label"] == "mau_thuan"
+    assert chain["signals"][0]["ykien_id"] == "ykien-1"
+    assert chain["signals"][0]["legal_evidence"]["quote"] == "Doanh nghiệp phải kê khai đúng hạn."
+    assert chain["aggregated_signal_count"] == 1
+    assert chain["alert"]["alert_id"] == "alert-1"
+    assert repo.saved_nli[0]["khoan_id"] == "k1"
+    assert repo.saved_alerts[0]["provenance_status"] == "complete"
+
+
+def test_social_post_adapts_to_platform_neutral_content_item():
+    post = normalize_social_payload({
+        "platform": "news",
+        "external_id": "article-1",
+        "content": "  Nội dung   bài báo pháp luật. ",
+        "url": "https://news.example/article-1",
+        "source_type": "news",
+        "provider": "news.example",
+    })
+    item = content_item_from_social_post(post)
+    assert item.content_id == "news:article-1"
+    assert item.source_type == ContentSourceType.NEWS
+    assert item.provider == "news.example"
+    assert item.canonical_url == "https://news.example/article-1"
+    assert len(item.content_hash) == 64
 
 @pytest.mark.asyncio
 async def test_qdrant_baidang_contract_platform_enum():

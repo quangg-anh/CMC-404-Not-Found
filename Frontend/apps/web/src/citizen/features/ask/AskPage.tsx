@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   PaperPlaneRight,
   User,
@@ -21,22 +21,11 @@ import { apiPost } from '../../../lib/api';
 import { CitizenHeader, SuggestionChips } from '../../components/CitizenChrome';
 import { AiTypingIndicator } from '../../components/AiTypingIndicator';
 import { Atmosphere } from '../../components/Atmosphere';
+import { LegalHistoryPanel } from '../../../components/LegalHistoryPanel';
+import { normalizeQAResponse } from '../../../lib/qaContract';
+import type { NormalizedCitation } from '../../../lib/qaContract';
 
 type GraphPath = unknown;
-
-interface QAResponse {
-  answer: string;
-  citations: BackendCitation[];
-  graph_paths: GraphPath[];
-  confidence: 'high' | 'medium' | 'low';
-  refuse_reason?: string[];
-  as_of?: string;
-  notices?: ChangeNotice[];
-  unverified?: boolean;
-  degraded?: boolean;
-  refused?: boolean;
-  cached?: boolean;
-}
 
 interface ChangeNotice {
   khoan_van_ban?: string;
@@ -45,19 +34,11 @@ interface ChangeNotice {
   message: string;
 }
 
-export interface BackendCitation {
-  khoan_id?: string;
-  quote?: string;
-  van_ban: string;
-  dieu: string;
-  score?: number;
-}
-
 export interface Message {
   id: string;
   role: 'user' | 'ai';
   content: string;
-  citations?: BackendCitation[];
+  citations?: NormalizedCitation[];
   graphPaths?: GraphPath[];
   confidence?: 'high' | 'medium' | 'low';
   isTyping?: boolean;
@@ -67,6 +48,9 @@ export interface Message {
   unverified?: boolean;
   degraded?: boolean;
   refused?: boolean;
+  refusalMessage?: string;
+  reasonCode?: string;
+  contractVersion?: 'v1' | 'v2';
   progressHint?: string;
 }
 
@@ -86,6 +70,7 @@ export default function AskPage() {
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
   const [isTypingComplete, setIsTypingComplete] = useState<Record<string, boolean>>({});
   const [lastFailedQuestion, setLastFailedQuestion] = useState<string | null>(null);
+  const [historyCitation, setHistoryCitation] = useState<NormalizedCitation | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -156,7 +141,8 @@ export default function AskPage() {
     try {
       const payload: { question: string; as_of?: string } = { question };
       if (asOfVal) payload.as_of = asOfVal;
-      const data = await apiPost<QAResponse>('/citizen/qa/ask', payload);
+      const raw = await apiPost<unknown>('/citizen/qa/ask', payload);
+      const data = normalizeQAResponse(raw, asOfVal);
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === typingId
@@ -165,13 +151,16 @@ export default function AskPage() {
                 role: 'ai',
                 content: data.answer,
                 citations: data.citations ?? [],
-                graphPaths: data.graph_paths ?? [],
+                graphPaths: data.graphPaths,
                 confidence: data.confidence,
-                asOf: data.as_of ?? asOfVal,
-                notices: data.notices ?? [],
-                unverified: Boolean(data.unverified),
-                degraded: Boolean(data.degraded),
-                refused: Boolean(data.refused),
+                asOf: data.asOf ?? asOfVal,
+                notices: data.notices as ChangeNotice[],
+                unverified: data.unverified,
+                degraded: data.degraded,
+                refused: data.refused,
+                refusalMessage: data.refusalMessage,
+                reasonCode: data.reasonCode,
+                contractVersion: data.contractVersion,
               }
             : msg,
         ),
@@ -324,8 +313,15 @@ export default function AskPage() {
                         />
                       )}
 
-                      {msg.role === 'ai' && msg.asOf && (
-                        <div className="mt-3 inline-flex items-center gap-2 rounded-control bg-background px-3 py-1.5 text-sm font-semibold text-muted">
+                      {msg.role === 'ai' && msg.refused && msg.refusalMessage && (
+                        <div className="mt-3 rounded-control border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                          <p className="font-bold">Câu trả lời đã được chặn để tránh cung cấp thông tin không có căn cứ.</p>
+                          <p className="mt-1 leading-relaxed">{msg.refusalMessage}</p>
+                          {msg.reasonCode ? <p className="mt-2 text-[11px] font-mono text-amber-700">Mã: {msg.reasonCode}</p> : null}
+                        </div>
+                      )}
+
+                      {msg.role === 'ai' && msg.asOf && (                        <div className="mt-3 inline-flex items-center gap-2 rounded-control bg-background px-3 py-1.5 text-sm font-semibold text-muted">
                           <CalendarBlank size={16} weight="bold" aria-hidden />
                           Ngày áp dụng: {new Date(`${msg.asOf}T00:00:00`).toLocaleDateString('vi-VN')}
                         </div>
@@ -374,11 +370,26 @@ export default function AskPage() {
                             <div className="space-y-3">
                               {msg.citations.map((cit, idx) => (
                                 <CitationCard
-                                  key={idx}
-                                  van_ban={cit.van_ban}
-                                  dieu={cit.dieu}
+                                  key={cit.citationId ?? cit.nodeId ?? idx}
+                                  van_ban={cit.documentNumber}
+                                  document_number={cit.documentNumber}
+                                  dieu={cit.article ? `Điều ${cit.article}` : ''}
+                                  article={cit.article}
+                                  clause={cit.clause}
+                                  point={cit.point}
                                   quote={cit.quote}
-                                  khoan_id={cit.khoan_id}
+                                  khoan_id={cit.khoanId}
+                                  node_id={cit.nodeId}
+                                  lineage_id={cit.lineageId}
+                                  level={cit.level}
+                                  effective_from={cit.effectiveFrom}
+                                  effective_to={cit.effectiveTo}
+                                  as_of={cit.asOf}
+                                  support_status={cit.supportStatus}
+                                  entailment_score={cit.entailmentScore}
+                                  validation_source={cit.validationSource}
+                                  supports_claim_ids={cit.supportsClaimIds}
+                                  onOpenTimeline={cit.nodeId || cit.lineageId ? () => setHistoryCitation(cit) : undefined}
                                 />
                               ))}
                             </div>
@@ -456,6 +467,11 @@ export default function AskPage() {
         </div>
         </div>
       </div>
+      <LegalHistoryPanel
+        citation={historyCitation}
+        audience="citizen"
+        onClose={() => setHistoryCitation(null)}
+      />
     </div>
   );
 }

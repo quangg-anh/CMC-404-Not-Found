@@ -9,11 +9,13 @@ from fastapi import Depends, HTTPException, status
 from app.config import BE2Config, get_config
 from app.core.security import Role, UserToken, get_current_user, require_admin, require_roles
 from app.adapters.neo4j_social import Neo4jSocialRepository
+from app.adapters.neo4j_temporal import Neo4jTemporalRepository
 from app.adapters.postgres_content import PostgresContentRepository
 from app.adapters.qdrant_vector import QdrantVectorClient
 from app.adapters.minio_storage import MinioStorage
 from app.intelligence.llm_router import LLMRouter
 from app.intelligence.embedder import Embedder
+from app.services.temporal_law_service import TemporalLawService
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +217,16 @@ async def get_neo4j_repo(driver: Any = Depends(get_neo4j_driver)) -> Neo4jSocial
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Kết nối Neo4j Graph Database chưa sẵn sàng.")
     return Neo4jSocialRepository(driver=driver)
 
+async def get_temporal_law_service(
+    driver: Any = Depends(get_neo4j_driver),
+) -> TemporalLawService:
+    if driver is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Neo4j temporal graph is not available.",
+        )
+    return TemporalLawService(Neo4jTemporalRepository(driver))
+
 
 # Re-export security dependencies for convenience
 __all__ = [
@@ -231,5 +243,6 @@ __all__ = [
     "get_minio",
     "get_postgres_repo",
     "get_neo4j_repo",
+    "get_temporal_law_service",
     "get_redis",
 ]

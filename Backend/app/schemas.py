@@ -17,6 +17,32 @@ class Status(StrEnum):
     NEEDS_REVIEW = "needs_review"
 
 
+class ContentSourceType(StrEnum):
+    NEWS = "news"
+    SOCIAL_POST = "social_post"
+    VIDEO = "video"
+    COMMENT = "comment"
+    FORUM = "forum"
+
+
+class ContentItem(BaseModel):
+    """Platform-neutral content contract used by news and social collectors."""
+
+    content_id: str = Field(min_length=1)
+    source_type: ContentSourceType
+    provider: str = Field(min_length=1)
+    external_id: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+    published_at: datetime
+    collected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    canonical_url: str | None = None
+    title: str | None = None
+    author_hash: str | None = None
+    content_hash: str = Field(min_length=64, max_length=64)
+    engagement: dict[str, Any] = Field(default_factory=dict)
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class SocialPost(BaseModel):
     platform: str = Field(min_length=1)
     external_id: str = Field(min_length=1)

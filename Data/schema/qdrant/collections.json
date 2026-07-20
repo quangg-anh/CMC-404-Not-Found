@@ -1,6 +1,6 @@
 {
-  "$comment": "Spec collections Qdrant. Nguon: Data/SYSTEM_DATA.md §4.3. Vector KHONG phai nguon trich dan - citation lay noi_dung tu Neo4j bang khoan_id. Dim mac dinh 1536 (text-embedding-3-small); doi model phai bao BE2 va cap nhat EMBEDDING_DIM + recreate collections.",
-  "version": "1.0.0",
+  "$comment": "Qdrant collection contract. Vector payload is never the canonical citation source; hydrate legal text from Neo4j by khoan_id (v1) or provision_id (v2). Default dimension is 1536; changing embedding models requires a separately approved collection migration.",
+  "version": "2.0.0",
   "default_dim": 1536,
   "default_distance": "Cosine",
   "collections": [
@@ -39,6 +39,37 @@
         "ten": "text"
       },
       "payload_indexes": ["slug"]
+    },
+    {
+      "name": "legal_provision",
+      "vector_size": 1536,
+      "distance": "Cosine",
+      "writer": "BE1 (LegalProvision v2, feature-flagged)",
+      "payload_schema": {
+        "provision_id": "keyword (bat buoc, -> Neo4j LegalProvision.provision_id)",
+        "lineage_id": "keyword",
+        "level": "keyword (dieu | khoan | diem)",
+        "logical_vb_id": "keyword",
+        "source_vb_id": "keyword",
+        "effective_from": "datetime (RFC 3339)",
+        "effective_to": "datetime (RFC 3339) | null",
+        "visibility": "keyword",
+        "review_status": "keyword (approved | needs_review)",
+        "text_checksum": "keyword",
+        "text_preview": "text (debug only, khong phai nguon citation)"
+      },
+      "payload_indexes": [
+        "provision_id",
+        "lineage_id",
+        "level",
+        "logical_vb_id",
+        "source_vb_id",
+        "effective_from",
+        "effective_to",
+        "visibility",
+        "review_status",
+        "text_checksum"
+      ]
     }
   ]
 }

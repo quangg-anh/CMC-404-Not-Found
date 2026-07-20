@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from app.intelligence.llm_router import LLMRouter
 from app.intelligence.nli import NLIService
-from app.schemas import Claim
+from app.schemas import CandidateKhoan, Claim
 
 
 class ClaimsOutput(BaseModel):
@@ -29,9 +29,25 @@ class ClaimChecker:
         return grounded
 
     async def check_claims(self, *, post_content: str, khoan_id: str, khoan_text: str) -> list[dict]:
+        provision = CandidateKhoan(khoan_id=khoan_id, noi_dung=khoan_text)
+        return await self.check_claims_against_provisions(post_content=post_content, provisions=[provision])
+
+    async def check_claims_against_provisions(
+        self,
+        *,
+        post_content: str,
+        provisions: list[CandidateKhoan],
+    ) -> list[dict]:
+        """Extract once, then verify every source-grounded claim against each candidate provision."""
         claims = await self.extract_claims(post_content)
         checked: list[dict] = []
         for claim in claims:
-            nli_result = await self.nli.nli_pair(khoan_text, claim.text)
-            checked.append({"claim": claim.model_dump(), "khoan_id": khoan_id, "nli": nli_result})
+            for provision in provisions:
+                nli_result = await self.nli.nli_pair(provision.noi_dung, claim.text)
+                checked.append({
+                    "claim": claim.model_dump(),
+                    "khoan_id": provision.khoan_id,
+                    "legal_text": provision.noi_dung,
+                    "nli": nli_result,
+                })
         return checked

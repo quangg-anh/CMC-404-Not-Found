@@ -7,6 +7,7 @@ Keeping it in one place guarantees the sync and async paths stay identical.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import time
@@ -16,10 +17,19 @@ from typing import Any
 import httpx
 
 from app.adapters.neo4j_legal import Neo4jLegalRepository
+from app.config import BE2Config, get_config
+from app.domain.legal_provision import build_lineage_id, legal_text_checksum
 from app.pipelines.legal.parser import LegalParser
 from app.pipelines.legal.extract_text import extract_text
-from app.pipelines.legal.normalize import normalize_so_hieu, generate_van_ban_id, generate_khoan_id
+from app.pipelines.legal.normalize import (
+    generate_diem_id,
+    generate_dieu_id,
+    generate_khoan_id,
+    generate_van_ban_id,
+    normalize_so_hieu,
+)
 from app.pipelines.legal.extractor import LegalExtractor
+from app.pipelines.legal.provision_index import index_document_legal_provisions
 
 logger = logging.getLogger(__name__)
 
@@ -397,26 +407,62 @@ async def _resolve_files_text(pool: Any, minio: Any, file_ids: list[str]) -> str
 
 
 def _build_tree(so_hieu_norm: str, parsed: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Attach canonical dieu_id/khoan_id to the parser tree for Neo4j MERGE."""
+    """Attach canonical IDs, lineage and checksums without losing Điểm nodes."""
     dieu_list: list[dict[str, Any]] = []
     for dieu in parsed:
-        dieu_so = dieu.get("so", "")
-        dieu_id = f"{so_hieu_norm}::D{dieu_so}"
-        khoan_list = []
+        dieu_so = str(dieu.get("so", "")).strip()
+        dieu_id = generate_dieu_id(so_hieu_norm, dieu_so)
+        dieu_lineage_id = build_lineage_id(so_hieu_norm, dieu_so)
+        dieu_text = str(dieu.get("noi_dung") or "").strip()
+        khoan_list: list[dict[str, Any]] = []
         for khoan in dieu.get("khoan_list", []):
-            khoan_so = khoan.get("so", "")
+            khoan_so = str(khoan.get("so", "")).strip()
+            khoan_id = generate_khoan_id(so_hieu_norm, dieu_so, khoan_so)
+            khoan_lineage_id = build_lineage_id(so_hieu_norm, dieu_so, khoan_so)
+            khoan_text = str(khoan.get("noi_dung") or "").strip()
+            diem_list: list[dict[str, Any]] = []
+            for diem in khoan.get("diem_list", []):
+                ky_hieu = str(diem.get("ky_hieu", "")).replace(")", "").strip().lower()
+                diem_text = str(diem.get("noi_dung") or "").strip()
+                diem_id = generate_diem_id(khoan_id, ky_hieu)
+                diem_list.append(
+                    {
+                        "diem_id": diem_id,
+                        "lineage_id": build_lineage_id(
+                            so_hieu_norm,
+                            dieu_so,
+                            khoan_so,
+                            ky_hieu,
+                        ),
+                        "parent_lineage_id": khoan_lineage_id,
+                        "level": "diem",
+                        "ky_hieu": ky_hieu,
+                        "noi_dung": diem_text,
+                        "text_checksum": legal_text_checksum(diem_text),
+                    }
+                )
             khoan_list.append(
                 {
-                    "khoan_id": generate_khoan_id(so_hieu_norm, dieu_so, khoan_so),
-                    "so": str(khoan_so),
-                    "noi_dung": khoan.get("noi_dung", "").strip(),
+                    "khoan_id": khoan_id,
+                    "lineage_id": khoan_lineage_id,
+                    "parent_lineage_id": dieu_lineage_id,
+                    "level": "khoan",
+                    "so": khoan_so,
+                    "noi_dung": khoan_text,
+                    "text_checksum": legal_text_checksum(khoan_text),
+                    "diem_list": diem_list,
                 }
             )
         dieu_list.append(
             {
                 "dieu_id": dieu_id,
-                "so": str(dieu_so),
-                "tieu_de": dieu.get("tieu_de", "").strip(),
+                "lineage_id": dieu_lineage_id,
+                "parent_lineage_id": None,
+                "level": "dieu",
+                "so": dieu_so,
+                "tieu_de": str(dieu.get("tieu_de") or "").strip(),
+                "noi_dung": dieu_text,
+                "text_checksum": legal_text_checksum(dieu_text),
                 "khoan_list": khoan_list,
             }
         )
@@ -520,6 +566,7 @@ async def run_legal_ingest(
     pool: Any = None,
     minio: Any = None,
     run_ner: bool | None = None,
+    config: BE2Config | None = None,
 ) -> dict[str, Any]:
     """Parse the document text, upsert its Điều/Khoản into Neo4j, index Khoản into Qdrant, and run NER.
 
@@ -532,6 +579,7 @@ async def run_legal_ingest(
     - status="needs_review" when text was present but no structure could be parsed,
     - status="queued" when no content was supplied (awaiting file upload / async fetch).
     """
+    cfg = config or get_config()
     so_hieu = payload.get("so_hieu", "")
     so_hieu_norm = normalize_so_hieu(so_hieu) if so_hieu else ""
     ngay_ban_hanh = payload.get("ngay_ban_hanh", "") or ""
@@ -586,6 +634,10 @@ async def run_legal_ingest(
         "visibility": payload.get("visibility", "public"),
         "co_quan_ban_hanh": payload.get("co_quan_ban_hanh"),
         "source_filename": payload.get("source_filename"),
+        "logical_vb_id": payload.get("logical_vb_id") or so_hieu_norm,
+        "source_checksum": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "review_status": "needs_review" if needs_review else "approved",
+        "version_no": int(payload.get("version_no") or 1),
         "dieu_list": dieu_list,
     }
 
@@ -605,8 +657,52 @@ async def run_legal_ingest(
             "message": hint,
         }
 
-    write_res = await Neo4jLegalRepository(driver).upsert_van_ban(doc)
-    khoan_count = write_res.get("khoan_count", 0)
+    repo = Neo4jLegalRepository(driver)
+    v2_write_report: dict[str, Any] | None = None
+    diem_count = sum(
+        len(khoan.get("diem_list") or [])
+        for dieu in dieu_list
+        for khoan in dieu.get("khoan_list") or []
+    )
+    if cfg.legal_provision_v2_write:
+        # Write legacy and immutable properties atomically on the same nodes. Replacing the
+        # mutable v1 writer here prevents a rejected v2 conflict from being overwritten by v1.
+        v2_write_report = await repo.upsert_van_ban_v2(doc)
+        v2_status = v2_write_report.get("status")
+        incoming = (v2_write_report.get("counts") or {}).get("incoming") or {}
+        khoan_count = int(incoming.get("khoan", 0))
+        diem_count = int(incoming.get("diem", diem_count))
+        if v2_status in {"conflict", "invalid"}:
+            return {
+                "status": "needs_review",
+                "vb_id": vb_id,
+                "dieu_count": len(dieu_list),
+                "khoan_count": khoan_count,
+                "diem_count": diem_count,
+                "indexed_count": 0,
+                "ner_count": 0,
+                "needs_review": True,
+                "write_mode": "legal_provision_v2",
+                "v2_write_report": v2_write_report,
+                "message": "LegalProvision v2 từ chối ghi để bảo toàn nội dung bất biến; cần Admin rà soát.",
+            }
+        if v2_status == "neo4j_unavailable":
+            return {
+                "status": "error",
+                "vb_id": vb_id,
+                "dieu_count": len(dieu_list),
+                "khoan_count": 0,
+                "diem_count": diem_count,
+                "indexed_count": 0,
+                "ner_count": 0,
+                "needs_review": False,
+                "write_mode": "legal_provision_v2",
+                "v2_write_report": v2_write_report,
+                "message": v2_write_report.get("reason") or "Neo4j v2 writer unavailable.",
+            }
+    else:
+        write_res = await repo.upsert_van_ban(doc)
+        khoan_count = write_res.get("khoan_count", 0)
 
     # Embed + index Khoản into Qdrant so the RAG QA engine can retrieve this new knowledge.
     indexed_count = await _index_khoan_vectors(
@@ -617,6 +713,22 @@ async def run_legal_ingest(
         visibility=doc["visibility"],
         dieu_list=dieu_list,
     )
+    v2_indexed_count = 0
+    if cfg.legal_provision_v2_write and (v2_write_report or {}).get("status") in {
+        "written",
+        "idempotent",
+    }:
+        try:
+            v2_indexed_count = await index_document_legal_provisions(
+                qdrant,
+                embedder,
+                doc,
+            )
+        except Exception as exc:  # noqa: BLE001 - keep legacy retrieval available
+            logger.warning(
+                "legal_ingest: Qdrant legal_provision indexing skipped: %s",
+                exc,
+            )
 
     # NER is decoupled by default (run via run_ner_backfill) so ingest stays fast. Only run inline
     # when explicitly requested (run_ner=True) or when LEGAL_NER_ON_INGEST=1.
@@ -634,8 +746,12 @@ async def run_legal_ingest(
         "vb_id": vb_id,
         "dieu_count": len(dieu_list),
         "khoan_count": khoan_count,
+        "diem_count": diem_count,
         "indexed_count": indexed_count,
+        "v2_indexed_count": v2_indexed_count,
         "ner_count": ner_count,
         "needs_review": needs_review,
-        "message": f"Đã số hóa {len(dieu_list)} Điều / {khoan_count} Khoản vào đồ thị{index_note}{ner_note}.",
+        "write_mode": "legal_provision_v2" if cfg.legal_provision_v2_write else "legacy_v1",
+        "v2_write_report": v2_write_report,
+        "message": f"Đã số hóa {len(dieu_list)} Điều / {khoan_count} Khoản / {diem_count} Điểm vào đồ thị{index_note}{ner_note}.",
     }

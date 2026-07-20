@@ -146,8 +146,8 @@ export default function AlertsPage() {
   return (
     <div className="mx-auto max-w-6xl pb-20">
       <PageHeader
-        title="Cảnh báo tin giả & sai lệch"
-        subtitle="AI trích xuất nhận định pháp lý trên MXH và đối chiếu với cơ sở dữ liệu luật — số liệu từ API `/admin/alerts`."
+        title="Cảnh báo nguy cơ hiểu nhầm"
+        subtitle="AI trích xuất claim từ báo chí và nguồn công khai, đối chiếu với căn cứ pháp luật; mọi tín hiệu đều cần cán bộ xác minh."
         actions={
           <div className="relative">
             <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
@@ -172,7 +172,7 @@ export default function AlertsPage() {
         <div className="admin-card p-16 text-center">
           <Warning size={40} className="mx-auto mb-4 text-border" weight="fill" aria-hidden />
           <p className="font-semibold text-muted">Chưa có cảnh báo nào được ghi nhận.</p>
-          <p className="mt-1 text-sm text-muted">Cảnh báo xuất hiện khi pipeline giám sát MXH phát hiện tín hiệu sai lệch.</p>
+          <p className="mt-1 text-sm text-muted">Cảnh báo xuất hiện khi pipeline phát hiện claim cần xác minh và có đầy đủ provenance.</p>
         </div>
       ) : (
         <div className="space-y-5">
@@ -209,7 +209,7 @@ export default function AlertsPage() {
                 <div className="flex flex-col">
                   <div className="flex items-center gap-2 mb-3">
                     <Users size={18} className="text-blue-500" weight="fill" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Nội dung lan truyền MXH</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Nội dung nguồn cần xác minh</span>
                   </div>
                   <div className="bg-slate-50 rounded-xl p-5 border border-slate-200/60 mb-4 relative">
                     <p className="text-[15px] font-medium text-slate-800 leading-relaxed relative z-10 italic">

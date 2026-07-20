@@ -117,11 +117,11 @@ export default function SocialPage() {
         <div className="relative grid grid-cols-1 items-center gap-6 lg:grid-cols-[1fr_380px]">
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-sky-100">
-              <ShareNetwork size={16} weight="fill" aria-hidden /> Social Radar Live
+              <ShareNetwork size={16} weight="fill" aria-hidden /> Information Radar
             </div>
-            <h1 className="font-display text-3xl font-extrabold tracking-tight md:text-4xl">Radar Mạng xã hội</h1>
+            <h1 className="font-display text-3xl font-extrabold tracking-tight md:text-4xl">Radar thông tin</h1>
             <p className="mt-3 max-w-2xl font-medium leading-relaxed text-sky-100/85">
-              Crawl YouTube bằng token đã cấu hình, gom bình luận công khai theo chủ đề pháp lý, rồi đưa bài vào pipeline BE2 để giám sát.
+              Theo dõi báo chí trước, sau đó mở rộng sang bài đăng và bình luận công khai trên các nền tảng xã hội bằng cùng một pipeline kiểm chứng.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3">

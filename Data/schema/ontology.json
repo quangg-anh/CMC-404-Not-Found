@@ -1,7 +1,7 @@
 {
   "$comment": "Nguon chan ly ontology KG phap luat. Khop Backend/SYSTEM_BACKEND.md §3 va Data/SYSTEM_DATA.md §4.1. Doi ontology phai mo RFC trong PR, cap nhat CA HAI file cung luc.",
-  "version": "1.0.0",
-  "updated_at": "2026-07-17",
+  "version": "2.0.0",
+  "updated_at": "2026-07-19",
   "database": "neo4j",
   "edition_note": "Community Edition: chi UNIQUE constraint kha dung. Cac rang buoc NOT NULL / property-type / rel-property duoc enforce o tang Backend.",
   "enums": {
@@ -12,10 +12,14 @@
     "alert_status": ["open", "triaged", "closed"],
     "media_type": ["text", "image", "audio", "video"],
     "doi_chieu_label": ["khop", "mau_thuan", "khong_ro"],
-    "platform": ["facebook", "youtube", "forum"]
+    "platform": ["facebook", "youtube", "forum", "news"],
+    "provision_level": ["dieu", "khoan", "diem"],
+    "provision_review_status": ["approved", "needs_review"],
+    "change_type": ["UNCHANGED", "REWORDED", "TIGHTENED", "LOOSENED", "ADDED", "REMOVED", "SPLIT", "MERGED", "UNCERTAIN"]
   },
   "canonical_keys": {
     "VanBanPhapLuat": "vb_id = hash(so_hieu_norm + ngay_ban_hanh)",
+    "LegalProvision": "provision_id = lineage_id@effective_from#text_checksum_prefix",
     "Dieu": "dieu_id = {so_hieu_norm}::D{dieu}",
     "Khoan": "khoan_id = {so_hieu_norm}::D{dieu}.K{khoan}",
     "Diem": "diem_id = {khoan_id}.P{ky_hieu}",
@@ -43,34 +47,83 @@
     },
     {
       "label": "Dieu",
+      "additional_labels": ["LegalProvision"],
       "key": "dieu_id",
+      "canonical_key": "provision_id",
       "properties": {
-        "dieu_id": "string (unique)",
+        "dieu_id": "string (unique compatibility key)",
+        "provision_id": "string (unique immutable version key)",
+        "lineage_id": "string (stable logical identity)",
+        "parent_lineage_id": "null",
+        "level": "enum provision_level = dieu",
+        "version_no": "int >= 1",
         "so_dieu": "string",
         "tieu_de": "string",
-        "van_ban_id": "string (-> VanBanPhapLuat.vb_id)"
+        "noi_dung": "string",
+        "effective_from": "date",
+        "effective_to": "date | null (exclusive)",
+        "text_checksum": "sha256 hex",
+        "source_checksum": "sha256 hex | null",
+        "source_vb_id": "string (-> VanBanPhapLuat.vb_id)",
+        "logical_vb_id": "string",
+        "van_ban_id": "string (compatibility -> VanBanPhapLuat.vb_id)",
+        "visibility": "enum visibility",
+        "recorded_at": "datetime",
+        "review_status": "enum provision_review_status"
       }
     },
     {
       "label": "Khoan",
+      "additional_labels": ["LegalProvision"],
       "key": "khoan_id",
+      "canonical_key": "provision_id",
       "properties": {
-        "khoan_id": "string (unique)",
+        "khoan_id": "string (unique compatibility key)",
+        "provision_id": "string (unique immutable version key)",
+        "lineage_id": "string (stable logical identity)",
+        "parent_lineage_id": "string (Điều lineage_id)",
+        "level": "enum provision_level = khoan",
+        "version_no": "int >= 1",
         "so_khoan": "string",
-        "noi_dung": "string (nguyen van - source of truth citation)",
-        "embedding_id": "string (-> Qdrant point id, collection khoan)",
-        "van_ban_id": "string (-> VanBanPhapLuat.vb_id)",
-        "dieu_so": "string"
+        "noi_dung": "string (canonical source text)",
+        "effective_from": "date",
+        "effective_to": "date | null (exclusive)",
+        "text_checksum": "sha256 hex",
+        "source_checksum": "sha256 hex | null",
+        "source_vb_id": "string (-> VanBanPhapLuat.vb_id)",
+        "logical_vb_id": "string",
+        "embedding_id": "string (compatibility -> Qdrant collection khoan)",
+        "van_ban_id": "string (compatibility -> VanBanPhapLuat.vb_id)",
+        "dieu_so": "string",
+        "visibility": "enum visibility",
+        "recorded_at": "datetime",
+        "review_status": "enum provision_review_status"
       }
     },
     {
       "label": "Diem",
+      "additional_labels": ["LegalProvision"],
       "key": "diem_id",
+      "canonical_key": "provision_id",
       "properties": {
-        "diem_id": "string (unique)",
+        "diem_id": "string (unique compatibility key)",
+        "provision_id": "string (unique immutable version key)",
+        "lineage_id": "string (stable logical identity)",
+        "parent_lineage_id": "string (Khoản lineage_id)",
+        "level": "enum provision_level = diem",
+        "version_no": "int >= 1",
         "ky_hieu": "string",
-        "noi_dung": "string",
-        "khoan_id": "string (-> Khoan.khoan_id)"
+        "noi_dung": "string (canonical source text)",
+        "effective_from": "date",
+        "effective_to": "date | null (exclusive)",
+        "text_checksum": "sha256 hex",
+        "source_checksum": "sha256 hex | null",
+        "source_vb_id": "string (-> VanBanPhapLuat.vb_id)",
+        "logical_vb_id": "string",
+        "khoan_id": "string (compatibility -> Khoan.khoan_id)",
+        "visibility": "enum visibility",
+        "recorded_at": "datetime",
+        "review_status": "enum provision_review_status"
       }
     },
     {
@@ -190,6 +243,18 @@
     { "type": "AP_DUNG_CHO", "from": ["NghiaVu", "QuyenLoi", "HanhViCam", "ThoiHan", "CheTai"], "to": "ChuThe" },
     { "type": "THAY_THE", "from": "VanBanPhapLuat", "to": "VanBanPhapLuat" },
     { "type": "SUA_DOI", "from": "VanBanPhapLuat", "to": "VanBanPhapLuat" },
+    {
+      "type": "SUPERSEDED_BY",
+      "from": ["Dieu", "Khoan", "Diem"],
+      "to": ["Dieu", "Khoan", "Diem"],
+      "properties": { "effective_from": "date", "change_type": "enum change_type", "confidence": "float", "review_id": "string", "source_vb_id": "string" },
+      "invariant": "Same level and lineage; no cycles; old.effective_to = new.effective_from."
+    },
+    {
+      "type": "AMENDED_BY",
+      "from": ["Dieu", "Khoan", "Diem"],
+      "to": "VanBanPhapLuat"
+    },
     { "type": "THAO_LUAN_VE", "from": "BaiDang", "to": "ChuDe" },
     { "type": "LIEN_QUAN", "from": "ChuDe", "to": ["Khoan", "Dieu", "VanBanPhapLuat"] },
     { "type": "CO_YKIEN", "from": "BaiDang", "to": "YKien" },
@@ -212,11 +277,16 @@
     { "type": "CO_FILE", "from": "VanBanPhapLuat", "to": "VanBanFile" }
   ],
   "invariants": [
-    "Citation phai lay noi_dung tu Khoan trong Neo4j bang khoan_id; vector KHONG phai nguon trich dan.",
+    "Citation v2 phai hydrate canonical text tu LegalProvision trong Neo4j bang provision_id; vector KHONG phai nguon trich dan.",
+    "LegalProvision text is immutable: same provision_id with a different text_checksum must be rejected.",
+    "Normal ingest cannot change effective_from, effective_to, source_vb_id or source_checksum of an existing LegalProvision.",
+    "Only an approved amendment commit may close effective_to or create SUPERSEDED_BY.",
+    "Temporal interval is half-open: effective_from <= as_of < effective_to; null effective_to means open-ended.",
+    "SUPERSEDED_BY only connects versions with the same lineage_id and level, and must not form a cycle.",
     "Citizen chi doc VanBanPhapLuat.visibility='public' va BaiTomTat.status='published' (filter o BE3).",
     "Canh GAN_CO_CAN_KIEM_CHUNG bat buoc co score + method.",
     "Canh DOI_CHIEU.label thuoc {khop, mau_thuan, khong_ro}.",
-    "MERGE idempotent: replay tu raw_checksum -> cung khoan_id."
+    "MERGE idempotent: replay same source/text checksum -> same provision_id; conflicts require review."
   ],
   "audit_note": "PUBLISHED_AS (BaiTomTat) duoc ghi audit o Postgres (bang audit_log/briefs), khong bat buoc la canh Neo4j."
 }

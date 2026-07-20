@@ -1,6 +1,6 @@
 # Data Platform — Hướng dẫn cho Backend
 
-> Vai trò: DB / Data Platform. Chi tiết thiết kế: `SYSTEM_DATA.md`.
+> Vai trò: DB / Data Platform. Contract hiện hành nằm trong `schema/ontology.json`; kế hoạch temporal nằm tại `docs/architecture/lawgic-core-execution-plan-v2.md`.
 > File này = tài liệu vận hành + **connection string** cho BE1/BE2/BE3 consume.
 > DB **không** viết business API / UI — chỉ cung cấp schema, connection, script.
 
@@ -27,7 +27,7 @@ Yêu cầu: Docker Desktop (WSL2 backend trên Windows). Stack healthy trong ≤
 | **Neo4j (Bolt)** | `bolt://localhost:7687` | user `neo4j` / `change_me_neo4j` | KG + nguyên văn Khoản = source of truth citation |
 | **Neo4j (HTTP/Browser)** | `http://localhost:7474` | như trên | kiểm tra ontology thủ công |
 | **PostgreSQL** | `postgresql://app_be_rw:change_me_pg@localhost:5432/legal_kg` | user `app_be_rw` | meta: users, jobs, lineage, briefs, alerts, audit |
-| **Qdrant** | `http://localhost:6333` (gRPC `6334`) | — | collections: `khoan`, `baidang`, `chude` |
+| **Qdrant** | `http://localhost:6333` (gRPC `6334`) | — | collections: `khoan`, `baidang`, `chude`; additive v2: `legal_provision` (bootstrap riêng) |
 | **Redis** | `redis://localhost:6379/0` | — | queue Arq/Celery + cache QA |
 | **MinIO (S3 API)** | `http://localhost:9000` | `minio_admin` / `change_me_minio` | bucket `legal-raw`, `social-raw` (versioning bật) |
 | **MinIO (Console)** | `http://localhost:9001` | như trên | UI quản lý object |
@@ -59,6 +59,8 @@ powershell -ExecutionPolicy Bypass -File Data/seed/load_seed.ps1
 ```
 Script sẽ: nạp constraints + indexes → load VB mẫu → seed users → đảm bảo Qdrant collections.
 
+Collection `legal_provision` v2 không được tự động tạo bởi seed legacy. Chạy dry-run rồi xác nhận riêng: `python Backend/scripts/bootstrap_qdrant_v2.py` và `python Backend/scripts/bootstrap_qdrant_v2.py --apply --yes`.
+
 **Railway (public TCP proxy)** — Python, không cần `psql` / `cypher-shell`:
 ```powershell
 # Set DATABASE_PUBLIC_URL, NEO4J_PASSWORD, QDRANT_URL, …
@@ -77,7 +79,6 @@ Data/
   docker-compose.data.yml     # 5 service + minio-init
   .env.example                # credentials mẫu
   README.md                   # file này
-  SYSTEM_DATA.md              # thiết kế đầy đủ
   schema/
     neo4j_constraints.cypher  # 17 UNIQUE constraints
     neo4j_indexes.cypher      # index + fulltext Khoan.noi_dung
@@ -88,7 +89,7 @@ Data/
       003_content_publish.sql # briefs, suggestions, alerts, audit_log
       004_retention_audit.sql # archived_at, v_publish_audit, read-only roles
     qdrant/
-      collections.json        # spec khoan/baidang/chude (dim 1536)
+      collections.json        # spec khoan/baidang/chude/legal_provision (dim 1536)
       extract_khoan.schema.json # JSON Schema output NER BE1
   seed/
     van_ban_mau/nghi_dinh_mau.cypher, nghi_dinh_02_mau.cypher
@@ -129,11 +130,11 @@ Format khớp `Backend/scripts/eval_be2_gold.py`: `links.json`→`expected_khoan
 - Citation lấy `noi_dung` từ **Neo4j** bằng `khoan_id`; **vector không phải nguồn trích dẫn**.
 - Citizen chỉ đọc VB `visibility='public'` và brief `status='published'` (filter ở BE3).
 - Cạnh `GAN_CO_CAN_KIEM_CHUNG` bắt buộc có `score`, `method`; `DOI_CHIEU.label ∈ {khop, mau_thuan, khong_ro}`.
-- Đổi ontology: mở RFC trong PR → BE1/BE2/BE3 approve → cập nhật **cả** `ontology.json` và `SYSTEM_BACKEND.md` §3 cùng lúc.
+- Đổi ontology: mở RFC trong PR → BE1/BE2/BE3 approve → cập nhật `ontology.json`, constraints, acceptance queries và ADR liên quan trong cùng PR.
 
 ---
 
-## 6. Backup (tham chiếu nhanh, xem `SYSTEM_DATA.md` §8)
+## 6. Backup (tham chiếu nhanh)
 
 | Kho | Lệnh gợi ý | Online? |
 |---|---|---|

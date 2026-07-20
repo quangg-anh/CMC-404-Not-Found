@@ -16,7 +16,7 @@ class AlertTriageRequest(BaseModel):
     note: str | None = Field(default=None, description="Ghi chú nghiệp vụ/lý do xử lý")
 
 
-@router.get("/alerts", summary="Danh sách cảnh báo đốm lửa/thông tin sai lệch")
+@router.get("/alerts", summary="Danh sách tín hiệu có nguy cơ gây hiểu nhầm")
 async def list_alerts(
     severity: str | None = None,
     status_filter: str | None = None,

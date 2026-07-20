@@ -5,6 +5,7 @@ import json
 from typing import Any
 from uuid import uuid5, NAMESPACE_URL
 from app.schemas import LinkCandidate, NliResult, SocialPost, TopicResult
+from app.pipelines.social.ingest import content_item_from_social_post
 
 
 class Neo4jSocialRepository:
@@ -16,9 +17,17 @@ class Neo4jSocialRepository:
 
     async def upsert_post(self, post: SocialPost) -> str:
         bai_dang_id = f"{post.platform}:{post.external_id}"
+        content_item = content_item_from_social_post(post)
         query = """
-        MERGE (b:BaiDang {platform: $platform, external_id: $external_id})
-        SET b.noi_dung = $noi_dung,
+        MERGE (b:BaiDang:NoiDungNguon {platform: $platform, external_id: $external_id})
+        SET b.content_id = $content_id,
+            b.source_type = $source_type,
+            b.provider = $provider,
+            b.canonical_url = $canonical_url,
+            b.content_hash = $content_hash,
+            b.title = $title,
+            b.engagement_json = $engagement_json,
+            b.noi_dung = $noi_dung,
             b.tac_gia_hash = $tac_gia_hash,
             b.tac_gia = $tac_gia,
             b.url = $url,
@@ -45,6 +54,13 @@ class Neo4jSocialRepository:
         params = {
             "platform": post.platform,
             "external_id": post.external_id,
+            "content_id": content_item.content_id,
+            "source_type": content_item.source_type.value,
+            "provider": content_item.provider,
+            "canonical_url": content_item.canonical_url,
+            "content_hash": content_item.content_hash,
+            "title": content_item.title,
+            "engagement_json": json.dumps(content_item.engagement, ensure_ascii=False, default=str),
             "noi_dung": post.noi_dung,
             "tac_gia_hash": post.tac_gia_hash,
             "tac_gia": meta.get("comment_author_name") or meta.get("author_name") or meta.get("video_channel_title"),
@@ -76,7 +92,26 @@ class Neo4jSocialRepository:
         if not record:
             return None
         data = dict(record["b"])
-        return SocialPost(platform=data["platform"], external_id=data["external_id"], noi_dung=data["noi_dung"], tac_gia_hash=data.get("tac_gia_hash"), url=data.get("url"), thoi_gian=data.get("thoi_gian") or datetime.now(timezone.utc))
+        source_metadata = data.get("source_metadata_json") or {}
+        if isinstance(source_metadata, str):
+            try:
+                source_metadata = json.loads(source_metadata)
+            except json.JSONDecodeError:
+                source_metadata = {}
+        if not isinstance(source_metadata, dict):
+            source_metadata = {}
+        source_metadata.setdefault("source_type", data.get("source_type"))
+        source_metadata.setdefault("provider", data.get("provider"))
+        return SocialPost(
+            platform=data["platform"],
+            external_id=data["external_id"],
+            noi_dung=data["noi_dung"],
+            tac_gia_hash=data.get("tac_gia_hash"),
+            url=data.get("url"),
+            thoi_gian=data.get("thoi_gian") or datetime.now(timezone.utc),
+            source_metadata=source_metadata,
+            ingested_at=data.get("ingested_at") or datetime.now(timezone.utc),
+        )
 
     async def save_topic(self, result: TopicResult) -> None:
         if not result.slug:
@@ -132,26 +167,46 @@ class Neo4jSocialRepository:
             y.claim_text = $claim_text,
             y.evidence_span = $evidence_span,
             y.stance = $label,
-            y.confidence = $score
+            y.confidence = $score,
+            y.created_at = coalesce(y.created_at, datetime($now)),
+            y.updated_at = datetime($now)
         MERGE (b)-[:CO_YKIEN]->(y)
         MERGE (y)-[r:DOI_CHIEU]->(k)
-        SET r.label = $label, r.score = $score
+        SET r.label = $label, r.score = $score, r.updated_at = datetime($now)
         """
         claim_hash = str(uuid5(NAMESPACE_URL, f"{bai_dang_id}:{khoan_id}:{claim_text}:{evidence_span}"))
         ykien_uuid = str(uuid5(NAMESPACE_URL, f"be2:ykien:{claim_hash}"))
+        now = datetime.now(timezone.utc).isoformat()
         async with self.driver.session() as session:
-            result_cursor = await session.run(query, platform=platform, external_id=external_id, khoan_id=khoan_id, bai_dang_id=bai_dang_id, uuid=ykien_uuid, claim_hash=claim_hash, claim_text=claim_text, evidence_span=evidence_span, label=result.label.value, score=result.score)
+            result_cursor = await session.run(
+                query,
+                platform=platform,
+                external_id=external_id,
+                khoan_id=khoan_id,
+                bai_dang_id=bai_dang_id,
+                uuid=ykien_uuid,
+                claim_hash=claim_hash,
+                claim_text=claim_text,
+                evidence_span=evidence_span,
+                label=result.label.value,
+                score=result.score,
+                now=now,
+            )
             await result_cursor.consume()
         return ykien_uuid
 
     async def save_alert(self, alert: dict[str, Any]) -> str:
         alert_uuid = alert.get("uuid") or alert.get("alert_id") or str(uuid5(NAMESPACE_URL, f"be2:alert:{alert.get('dedupe_key') or alert}"))
+        now = datetime.now(timezone.utc).isoformat()
         query = """
         MERGE (a:AlertMeta {uuid: $uuid})
         SET a.chu_de = $chu_de, a.khoan_ids = $khoan_ids, a.severity = $severity,
             a.volume = $volume, a.status = $status, a.provenance_status = $provenance_status,
+            a.dedupe_key = $dedupe_key,
             a.signals_json = $signals_json,
-            a.created_at = coalesce(a.created_at, datetime($created_at))
+            a.created_at = coalesce(a.created_at, datetime($now)),
+            a.updated_at = datetime($now),
+            a.last_seen_at = datetime($now)
         WITH a
         UNWIND $signal_ids AS signal_id
         OPTIONAL MATCH (y:YKien {uuid: signal_id})
@@ -160,7 +215,20 @@ class Neo4jSocialRepository:
         """
         async with self.driver.session() as session:
             signals = alert.get("signals", [])
-            result = await session.run(query, uuid=alert_uuid, chu_de=alert.get("chu_de"), khoan_ids=alert.get("khoan_ids", []), severity=alert.get("severity"), volume=alert.get("volume"), status=alert.get("status", "open"), provenance_status=alert.get("provenance_status", "missing"), signals_json=json.dumps(signals, ensure_ascii=False, default=str), signal_ids=[s.get("ykien_id") for s in signals if s.get("ykien_id")], created_at=datetime.now(timezone.utc).isoformat())
+            result = await session.run(
+                query,
+                uuid=alert_uuid,
+                dedupe_key=alert.get("dedupe_key"),
+                chu_de=alert.get("chu_de"),
+                khoan_ids=alert.get("khoan_ids", []),
+                severity=alert.get("severity"),
+                volume=alert.get("volume"),
+                status=alert.get("status", "open"),
+                provenance_status=alert.get("provenance_status", "missing"),
+                signals_json=json.dumps(signals, ensure_ascii=False, default=str),
+                signal_ids=[s.get("ykien_id") for s in signals if s.get("ykien_id")],
+                now=now,
+            )
             record = await result.single()
         if self.pool and hasattr(self.pool, "acquire"):
             async with self.pool.acquire() as conn:
@@ -189,8 +257,74 @@ class Neo4jSocialRepository:
         return record["uuid"] if record else str(alert_uuid)
 
     async def find_recent_alert(self, key: str, cooldown_s: int) -> dict[str, Any] | None:
-        query = "MATCH (a:AlertMeta {uuid: $key}) RETURN a LIMIT 1"
+        query = """
+        MATCH (a:AlertMeta {dedupe_key: $key})
+        WHERE coalesce(a.last_seen_at, a.updated_at, a.created_at)
+              >= datetime() - duration({seconds: $cooldown_s})
+        RETURN a LIMIT 1
+        """
         async with self.driver.session() as session:
-            result = await session.run(query, key=key)
+            result = await session.run(query, key=key, cooldown_s=max(0, int(cooldown_s)))
             record = await result.single()
         return dict(record["a"]) if record else None
+
+    async def get_recent_alert_signals(
+        self,
+        *,
+        chu_de: str | None,
+        khoan_ids: list[str],
+        window_s: int,
+        min_score: float,
+    ) -> list[dict[str, Any]]:
+        """Load persisted, source-grounded contradictions for one alert aggregation window."""
+        if not self.driver or not hasattr(self.driver, "session"):
+            return []
+        query = """
+        MATCH (b:BaiDang)-[:CO_YKIEN]->(y:YKien)-[d:DOI_CHIEU]->(k:Khoan)
+        OPTIONAL MATCH (b)-[:THAO_LUAN_VE]->(c:ChuDe)
+        WHERE d.label = 'mau_thuan'
+          AND d.score >= $min_score
+          AND y.created_at >= datetime() - duration({seconds: $window_s})
+          AND ($chu_de IS NULL OR coalesce(c.slug, b.chu_de) = $chu_de)
+          AND (size($khoan_ids) = 0 OR k.khoan_id IN $khoan_ids)
+        RETURN y.uuid AS ykien_id, y.claim_text AS claim_text,
+               y.evidence_span AS evidence_span, d.label AS label, d.score AS score,
+               b.platform + ':' + b.external_id AS bai_dang_id,
+               b.noi_dung AS post_content, b.url AS post_url,
+               coalesce(c.slug, b.chu_de) AS chu_de,
+               b.source_type AS source_type, b.provider AS provider,
+               k.khoan_id AS khoan_id, k.noi_dung AS legal_text,
+               k.van_ban_id AS van_ban_id
+        ORDER BY y.created_at DESC
+        LIMIT 500
+        """
+        signals: list[dict[str, Any]] = []
+        async with self.driver.session() as session:
+            result = await session.run(
+                query,
+                chu_de=chu_de,
+                khoan_ids=khoan_ids,
+                window_s=max(1, int(window_s)),
+                min_score=float(min_score),
+            )
+            async for record in result:
+                signals.append({
+                    "bai_dang_id": record.get("bai_dang_id"),
+                    "ykien_id": record.get("ykien_id"),
+                    "claim_text": record.get("claim_text"),
+                    "evidence_span": record.get("evidence_span"),
+                    "post_content": record.get("post_content"),
+                    "post_url": record.get("post_url"),
+                    "chu_de": record.get("chu_de"),
+                    "khoan_id": record.get("khoan_id"),
+                    "label": record.get("label"),
+                    "score": float(record.get("score") or 0.0),
+                    "source_type": record.get("source_type"),
+                    "provider": record.get("provider"),
+                    "legal_evidence": {
+                        "khoan_id": record.get("khoan_id"),
+                        "van_ban": record.get("van_ban_id"),
+                        "quote": record.get("legal_text"),
+                    },
+                })
+        return signals

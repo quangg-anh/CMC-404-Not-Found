@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from typing import Any
+
+from app.adapters.neo4j_legal_v2 import ImmutableLegalProvisionWriter
 from app.schemas import CandidateKhoan
 
 
 class Neo4jLegalRepository:
-    """Read-only legal repository over Neo4j Khoan nodes (source of truth for canonical text).
+    """Canonical legal repository for v1 reads and feature-flagged immutable v2 writes.
 
-    Implements the LegalRepository protocol used by brief/suggest generation pipelines.
+    It also implements the LegalRepository protocol used by brief/suggest generation pipelines.
     """
 
     def __init__(self, driver: Any) -> None:
@@ -96,6 +98,18 @@ class Neo4jLegalRepository:
 
         khoan_count = sum(len(d.get("khoan_list", [])) for d in dieu_list)
         return {"written": True, "vb_id": doc.get("vb_id"), "dieu_count": len(dieu_list), "khoan_count": khoan_count}
+
+    async def upsert_van_ban_v2(
+        self,
+        doc: dict[str, Any],
+        *,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Write v1-compatible and immutable v2 properties in one transaction.
+
+        This writer never closes an existing interval; amendment commits own that operation.
+        """
+        return await ImmutableLegalProvisionWriter(self.driver).write_document(doc, dry_run=dry_run)
 
     # Category -> (Neo4j label, relationship type from Khoan to the entity).
     _ENTITY_MAP = {

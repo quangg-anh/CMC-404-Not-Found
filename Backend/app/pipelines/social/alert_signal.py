@@ -18,6 +18,15 @@ class AlertSignalService:
             and s.get("label") in {NliLabel.MAU_THUAN, NliLabel.MAU_THUAN.value}
             and float(s.get("score", 0.0)) >= self.config.nli_confidence_threshold
         ]
+        unique: dict[str, dict[str, Any]] = {}
+        for signal in eligible:
+            identity = str(signal.get("ykien_id") or "|".join((
+                str(signal.get("bai_dang_id")),
+                str(signal.get("khoan_id")),
+                str(signal.get("claim_text")),
+            )))
+            unique.setdefault(identity, signal)
+        eligible = list(unique.values())
         if len(eligible) < self.config.alert_volume_threshold or dry_run:
             return None
         keys = [(s.get("chu_de"), s.get("khoan_id")) for s in eligible]
@@ -34,7 +43,7 @@ class AlertSignalService:
 
     @staticmethod
     def _has_provenance(signal: dict[str, Any]) -> bool:
-        required = ("bai_dang_id", "claim_text", "evidence_span", "post_url", "khoan_id")
+        required = ("bai_dang_id", "ykien_id", "claim_text", "evidence_span", "post_url", "khoan_id")
         if not all(isinstance(signal.get(key), str) and signal[key].strip() for key in required):
             return False
         post_content = signal.get("post_content")

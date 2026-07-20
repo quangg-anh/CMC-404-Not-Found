@@ -42,7 +42,7 @@ type NavItem = { to: string; label: string; icon: typeof SquaresFour };
 const MAIN_NAV: NavItem[] = [
   { to: '/admin', label: 'Tổng quan', icon: SquaresFour },
   { to: '/admin/alerts', label: 'Cảnh báo rủi ro', icon: Bell },
-  { to: '/admin/social', label: 'Radar MXH', icon: Broadcast },
+  { to: '/admin/social', label: 'Radar thông tin', icon: Broadcast },
   { to: '/admin/qa', label: 'Hỏi đáp pháp lý', icon: ListMagnifyingGlass },
   { to: '/admin/review', label: 'Hàng đợi duyệt', icon: ListChecks },
   { to: '/admin/briefs', label: 'Bản tin', icon: Article },

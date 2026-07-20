@@ -23,6 +23,19 @@ CREATE CONSTRAINT khoan_id IF NOT EXISTS
 CREATE CONSTRAINT diem_id IF NOT EXISTS
   FOR (p:Diem) REQUIRE p.diem_id IS UNIQUE;
 
+// ---------- LegalProvision v2 (additive temporal model) ----------
+CREATE CONSTRAINT legalprovision_id IF NOT EXISTS
+  FOR (p:LegalProvision) REQUIRE p.provision_id IS UNIQUE;
+
+CREATE INDEX legalprovision_lineage IF NOT EXISTS
+  FOR (p:LegalProvision) ON (p.lineage_id);
+
+CREATE INDEX legalprovision_effective_interval IF NOT EXISTS
+  FOR (p:LegalProvision) ON (p.effective_from, p.effective_to);
+
+CREATE INDEX legalprovision_logical_document IF NOT EXISTS
+  FOR (p:LegalProvision) ON (p.logical_vb_id);
+
 // ---------- Thuc the phap ly (key = uuid) ----------
 CREATE CONSTRAINT chuthe_uuid IF NOT EXISTS
   FOR (n:ChuThe) REQUIRE n.uuid IS UNIQUE;
@@ -49,6 +62,9 @@ CREATE CONSTRAINT ykien_uuid IF NOT EXISTS
 
 CREATE CONSTRAINT alertmeta_uuid IF NOT EXISTS
   FOR (a:AlertMeta) REQUIRE a.uuid IS UNIQUE;
+
+CREATE INDEX alertmeta_dedupe IF NOT EXISTS
+  FOR (a:AlertMeta) ON (a.dedupe_key);
 
 // ---------- Noi dung xuat ban & dinh chinh (Phase C) ----------
 CREATE CONSTRAINT baitomtat_uuid IF NOT EXISTS

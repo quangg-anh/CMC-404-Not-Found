@@ -97,6 +97,20 @@ class BE2Config(BaseModel):
     news_brief_cron_hour: int = Field(default=7, ge=0, le=23)
     news_brief_cron_minute: int = Field(default=0, ge=0, le=59)
     news_brief_limit_per_topic: int = Field(default=5, ge=1, le=20)
+    news_monitor_enabled: bool = False
+    news_monitor_cron_hour: int = Field(default=7, ge=0, le=23)
+    news_monitor_cron_minute: int = Field(default=15, ge=0, le=59)
+    news_monitor_limit_per_topic: int = Field(default=5, ge=1, le=20)
+
+    # Additive LAWGIC-core rollout flags. Reads remain on v1 until acceptance gates pass.
+    legal_provision_v2_write: bool = False
+    legal_provision_v2_read: bool = False
+    temporal_law_v2: bool = False
+    qa_citation_v2: bool = False
+    qa_strict_grounding_v2: bool = True
+    amendment_preview_v2: bool = False
+    amendment_commit_v2: bool = False
+    misconception_temporal_v2: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -183,4 +197,16 @@ def get_config() -> BE2Config:
         news_brief_cron_hour=_int_env("BE2_NEWS_BRIEF_CRON_HOUR", 7),
         news_brief_cron_minute=_int_env("BE2_NEWS_BRIEF_CRON_MINUTE", 0),
         news_brief_limit_per_topic=_int_env("BE2_NEWS_BRIEF_LIMIT_PER_TOPIC", 5),
+        news_monitor_enabled=_bool_env("BE2_NEWS_MONITOR_ENABLED", "false"),
+        news_monitor_cron_hour=_int_env("BE2_NEWS_MONITOR_CRON_HOUR", 7),
+        news_monitor_cron_minute=_int_env("BE2_NEWS_MONITOR_CRON_MINUTE", 15),
+        news_monitor_limit_per_topic=_int_env("BE2_NEWS_MONITOR_LIMIT_PER_TOPIC", 5),
+        legal_provision_v2_write=_bool_env("LEGAL_PROVISION_V2_WRITE", "false"),
+        legal_provision_v2_read=_bool_env("LEGAL_PROVISION_V2_READ", "false"),
+        temporal_law_v2=_bool_env("TEMPORAL_LAW_V2", "false"),
+        qa_citation_v2=_bool_env("QA_CITATION_V2", "false"),
+        qa_strict_grounding_v2=_bool_env("QA_STRICT_GROUNDING_V2", "true"),
+        amendment_preview_v2=_bool_env("AMENDMENT_PREVIEW_V2", "false"),
+        amendment_commit_v2=_bool_env("AMENDMENT_COMMIT_V2", "false"),
+        misconception_temporal_v2=_bool_env("MISCONCEPTION_TEMPORAL_V2", "false"),
     )
